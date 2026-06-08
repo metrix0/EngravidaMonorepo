@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+@source "../**/*.{ts,tsx}";
+@source "@engravida//components";
+
+@import "@engravida/styles/globals.css";
