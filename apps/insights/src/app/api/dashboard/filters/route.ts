@@ -1,7 +1,7 @@
 // src/app/api/dashboard/filters/route.ts
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
-import type { FilterEntity, FiltersResponse } from "@engravida//types";
+import { supabase } from "@engravida/lib";
+import type { FilterEntity, FiltersResponse } from "@engravida/types";
 
 type DashboardFilterEntity = FilterEntity | "tunnels" | "origins";
 

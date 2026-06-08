@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 import { Eye, EyeOff } from "lucide-react";
 
-import { Card } from "@engravida//components";
+import { Card } from "@engravida/components";
 
 export default function LoginPage() {
     const router = useRouter();

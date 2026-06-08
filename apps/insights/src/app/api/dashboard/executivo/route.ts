@@ -1,7 +1,7 @@
 // src/app/api/dashboard/executivo/route.ts
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
-import type { ExecutiveDashboardData } from "@engravida//types";
+import { supabase } from "@engravida/lib";
+import type { ExecutiveDashboardData } from "@engravida/types";
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);

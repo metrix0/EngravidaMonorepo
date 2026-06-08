@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@engravida/lib";
 import { parseBlipMessage } from "@/lib/importers/blip/parseBlipMessage";
 import { createClientFromParsedMessage } from "@/lib/clients/createClient";
 import { createAttendantFromParsedMessage } from "@/lib/attendants/createAttendant";

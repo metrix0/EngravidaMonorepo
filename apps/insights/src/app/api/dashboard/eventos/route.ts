@@ -1,7 +1,7 @@
 // src/app/api/dashboard/eventos/route.ts
 import { NextResponse } from "next/server";
 
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@engravida/lib";
 import {
     AD_EVENT_STATUS_LABELS,
     AD_EVENT_STATUSES,
@@ -11,7 +11,7 @@ import {
     type AdEventStatus,
     type AdEventType,
     type AdPlatform,
-} from "@engravida//types/ad-event";
+} from "@/types/ad-event";
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);

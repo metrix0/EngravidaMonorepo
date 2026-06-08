@@ -1,9 +1,9 @@
 // src/lib/ads/deriveAdEventsFromAnalysis.ts
-import type { ConversationAnalysis, OutcomeEventType } from "@engravida//types";
+import type { ConversationAnalysis, OutcomeEventType } from "@engravida/types";
 import {
     QUALIFIED_LEAD_OUTCOME_EVENTS,
     SCHEDULE_OUTCOME_EVENTS,
-} from "@engravida//lib/ads/adEventRules";
+} from "@engravida/lib/ads/adEventRules";
 
 export type DerivedAdEvent = {
     type: "lead" | "schedule";

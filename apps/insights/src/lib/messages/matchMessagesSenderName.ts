@@ -1,6 +1,6 @@
 // src/lib/messages/matchMessagesSenderName.ts
-import { supabase } from "@/lib/supabase/client";
-import type { SenderType } from "@engravida//types/message";
+import { supabase } from "@engravida/lib";
+import type { SenderType } from "@engravida/types/message";
 
 type MatchMessagesSenderNameInput = {
     limit: number;

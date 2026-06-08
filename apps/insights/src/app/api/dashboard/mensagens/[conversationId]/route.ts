@@ -1,6 +1,6 @@
 // src/app/api/dashboard/mensagens/[conversationId]/route.ts
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@engravida/lib";
 
 export async function GET(
     _request: Request,

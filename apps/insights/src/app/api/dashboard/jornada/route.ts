@@ -1,6 +1,6 @@
 // src/app/api/dashboard/jornada/route.ts
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@engravida/lib";
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);

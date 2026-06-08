@@ -1,7 +1,7 @@
 // src/lib/ai/analyzeConversation.ts
 import { getGroqClient } from "./groq";
 import { conversationAnalysisSchema } from "./conversationAnalysisSchema";
-import type { AnalyzeConversationInput, ConversationAnalysis } from "@engravida//types";
+import type { AnalyzeConversationInput, ConversationAnalysis } from "@engravida/types";
 
 const analysisModels = [
     process.env.GROQ_MODEL_ANALYSIS,

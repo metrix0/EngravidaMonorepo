@@ -17,7 +17,7 @@ import {
 
     type CalendarPresetValue,
     type DateRange,
-} from "@engravida//components/ui/CalendarButton";
+} from "@engravida/components/ui/CalendarButton";
 import {
     Area,
     AreaChart,
@@ -32,7 +32,7 @@ import {
     YAxis,
 } from "recharts";
 
-import type {ExecutiveDashboardData, FiltersResponse} from "@engravida//types";
+import type {ExecutiveDashboardData, FiltersResponse} from "@engravida/types";
 
 import {
     MainFilters,
@@ -46,7 +46,7 @@ import {
     HorizontalScroller,
     DashboardHeader,
     InfoTooltip
-} from "@engravida//components";
+} from "@engravida/components";
 
 
 export default function ExecutiveDashboardPage() {

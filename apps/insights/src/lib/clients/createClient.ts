@@ -1,8 +1,8 @@
 // src/lib/clients/createClient.ts
 import { randomUUID } from "crypto";
 
-import { supabase } from "@/lib/supabase/client";
-import type { Client } from "@engravida//types/client";
+import { supabase } from "@engravida/lib";
+import type { Client } from "@engravida/types/client";
 import type { ParsedBlipMessage } from "@/lib/importers/blip/parseBlipMessage";
 
 export async function createClientFromParsedMessage(

@@ -1,7 +1,7 @@
 // src/lib/ads/meta/sendMetaEvents.ts
 import crypto from "crypto";
 
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@engravida/lib";
 import type { DerivedAdEvent } from "@/lib/ads/deriveAdEventsFromAnalysis";
 
 type SendMetaEventsInput = {

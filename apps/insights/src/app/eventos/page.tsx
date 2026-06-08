@@ -17,7 +17,7 @@ import {
 
     type CalendarPresetValue,
     type DateRange,
-} from "@engravida//components/ui/CalendarButton";
+} from "@engravida/components/ui/CalendarButton";
 import {
     Bar,
     BarChart,
@@ -32,7 +32,7 @@ import {
 } from "recharts";
 import {FaGoogle, FaMeta} from "react-icons/fa6";
 
-import type {FiltersResponse} from "@engravida//types";
+import type {FiltersResponse} from "@engravida/types";
 import {
     AD_EVENT_STATUS_LABELS,
     AD_EVENT_STATUSES,
@@ -43,7 +43,7 @@ import {
     type AdEventStatus,
     type AdEventType,
     type AdPlatform,
-} from "@engravida//types/ad-event";
+} from "@/types/ad-event";
 
 import {
     DashboardHeader,
@@ -55,10 +55,10 @@ import {
     SidePanel,
     Skeleton,
     Pagination,
-} from "@engravida//components";
+} from "@engravida/components";
 
-import AdvancedFilterButton from "@engravida//components/ui/AdvancedFilterButton";
-import {ConversationPanel} from "@engravida//components/conversations/ConversationPanel";
+import AdvancedFilterButton from "@engravida/components/ui/AdvancedFilterButton";
+import {ConversationPanel} from "@engravida/components/conversations/ConversationPanel";
 
 
 type EventsDashboardData = {

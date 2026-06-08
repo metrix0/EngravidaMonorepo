@@ -1,6 +1,6 @@
 // src/lib/ads/google/sendGoogleEvents.ts
 import { createHash } from "crypto";
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@engravida/lib";
 import type { DerivedAdEvent } from "@/lib/ads/deriveAdEventsFromAnalysis";
 
 type SendGoogleEventsInput = {

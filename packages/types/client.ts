@@ -13,4 +13,5 @@ export type Client = {
 
     first_seen_at: string;
     last_interaction_at: string;
+    pipeline_stage_id?: string | null;
 };

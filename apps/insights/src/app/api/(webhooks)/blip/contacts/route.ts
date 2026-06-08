@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@engravida/lib";
 
 type BlipContactPayload = {
     identity?: string;

@@ -1,7 +1,7 @@
 // src/lib/conversations/matchConversationsSheetAttribution.ts
 import { GoogleAuth } from "google-auth-library";
 
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@engravida/lib";
 
 type MatchInput = {
     limit?: number;

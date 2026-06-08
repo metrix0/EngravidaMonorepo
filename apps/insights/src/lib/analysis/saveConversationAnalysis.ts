@@ -1,6 +1,6 @@
 // src/lib/analysis/saveConversationAnalysis.ts
-import { supabase } from "@/lib/supabase/client";
-import type { ConversationAnalysis } from "@engravida//types";
+import { supabase } from "@engravida/lib";
+import type { ConversationAnalysis } from "@engravida/types";
 
 export async function saveConversationAnalysis(analysis: ConversationAnalysis) {
     const { data, error } = await supabase

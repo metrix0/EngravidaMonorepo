@@ -1,6 +1,6 @@
 // src/lib/conversations/messagesToConversations.ts
-import { supabase } from "@/lib/supabase/client";
-import type { AnalyzeConversationInput, Message } from "@engravida//types";
+import { supabase } from "@engravida/lib";
+import type { AnalyzeConversationInput, Message } from "@engravida/types";
 
 export async function messageToConversations({
                                                  inactivityHours = 6,

@@ -1,8 +1,8 @@
 // src/lib/attendants/createAttendant.ts
 import { randomUUID } from "crypto";
 
-import { supabase } from "@/lib/supabase/client";
-import type { Attendant } from "@engravida//types/attendant";
+import { supabase } from "@engravida/lib";
+import type { Attendant } from "@engravida/types/attendant";
 import type { ParsedBlipMessage } from "@/lib/importers/blip/parseBlipMessage";
 
 export async function createAttendantFromParsedMessage(

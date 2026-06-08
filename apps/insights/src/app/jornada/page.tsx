@@ -12,7 +12,7 @@ import {
 
     type CalendarPresetValue,
     type DateRange,
-} from "@engravida//components/ui/CalendarButton";
+} from "@engravida/components/ui/CalendarButton";
 import {
     Bar,
     BarChart,
@@ -27,7 +27,7 @@ import {
     YAxis,
 } from "recharts";
 
-import type {FiltersResponse} from "@engravida//types";
+import type {FiltersResponse} from "@engravida/types";
 
 import {
     MainFilters,
@@ -38,7 +38,7 @@ import {
     PercentageBar,
     SidePanel,
     Skeleton,
-} from "@engravida//components";
+} from "@engravida/components";
 
 
 type JourneyDashboardData = {

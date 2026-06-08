@@ -1,5 +1,5 @@
 // src/lib/conversations/processPendingConversationsToAnalysisAndAdEvents.ts
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@engravida/lib";
 
 import { analyzeConversation } from "@/lib/ai/analyzeConversation";
 import { saveConversationAnalysis } from "@/lib/analysis/saveConversationAnalysis";
@@ -7,7 +7,7 @@ import { deriveAdEventsFromAnalysis } from "@/lib/ads/deriveAdEventsFromAnalysis
 import { sendMetaEvents } from "@/lib/ads/meta/sendMetaEvents";
 import { sendGoogleEvents } from "@/lib/ads/google/sendGoogleEvents";
 
-import type { AnalyzeConversationInput, Conversation, Message } from "@engravida//types";
+import type { AnalyzeConversationInput, Conversation, Message } from "@engravida/types";
 
 export async function processPendingConversationsToAnalysisAndAdEvents({
                                                                limit = 1000,

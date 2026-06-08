@@ -6,16 +6,16 @@ import {
     User,
     CircleAlert, ChevronRight,
 } from "lucide-react";
-import {ConversationPanel} from "@engravida//components/conversations/ConversationPanel";
+import {ConversationPanel} from "@engravida/components/conversations/ConversationPanel";
 import {
     applyArrayParams,
     applyCalendarDateParams,
 
     type CalendarPresetValue,
     type DateRange,
-} from "@engravida//components/ui/CalendarButton";
+} from "@engravida/components/ui/CalendarButton";
 
-import type {FiltersResponse} from "@engravida//types";
+import type {FiltersResponse} from "@engravida/types";
 
 import {
     MainFilters,
@@ -24,15 +24,15 @@ import {
     SidePanel,
     Skeleton,
     Pagination
-} from "@engravida//components";
+} from "@engravida/components";
 
-import {InitialsAvatar} from "@engravida//components/conversations/InitialsAvatar";
+import {InitialsAvatar} from "@engravida/components/conversations/InitialsAvatar";
 import {
     ConversationResultBadge,
     type ConversationResult,
-} from "@engravida//components/conversations/ConversationResultBadge";
-import {SearchFilter} from "@engravida//components/conversations/SearchFilter";
-import AdvancedFilterButton from "@engravida//components/ui/AdvancedFilterButton";
+} from "@engravida/components/conversations/ConversationResultBadge";
+import {SearchFilter} from "@engravida/components/conversations/SearchFilter";
+import AdvancedFilterButton from "@engravida/components/ui/AdvancedFilterButton";
 
 
 type ConversationRow = {

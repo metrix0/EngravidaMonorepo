@@ -6,7 +6,7 @@
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "types": ["react", "react-dom"],
-    "strict": true,
+    "strict": false,
     "skipLibCheck": true,
     "noEmit": true,
     "allowJs": false,

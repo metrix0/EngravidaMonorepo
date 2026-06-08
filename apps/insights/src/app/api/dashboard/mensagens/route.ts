@@ -1,6 +1,6 @@
 // src/app/api/dashboard/mensagens/route.ts
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@engravida/lib";
 
 type ConversationResult = "resolvida" | "parcial" | "nao_resolvida" | "pendente";
 
