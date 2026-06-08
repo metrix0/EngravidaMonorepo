@@ -132,18 +132,42 @@ export async function analyzeConversation({
             continue;
         }
 
-        return {
+        const normalizedResolved =
+            parsed.data.resolution.resolved === "partial"
+                ? "partial"
+                : parsed.data.resolution.resolved === "true"
+
+        const analysis = {
             ...parsed.data,
+
+            attendant_id: parsed.data.attendant_id ?? null,
+            unit_id: parsed.data.unit_id ?? null,
+            service_id: parsed.data.service_id ?? null,
+
             resolution: {
                 ...parsed.data.resolution,
-                resolved:
-                    parsed.data.resolution.resolved === "true"
-                        ? true
-                        : parsed.data.resolution.resolved === "false"
-                            ? false
-                            : "partial",
+                resolved: normalizedResolved,
+                resolution_score: Math.max(
+                    0,
+                    Math.min(100, parsed.data.resolution.resolution_score)
+                ),
             },
-        };
+
+            outcome_events: (parsed.data.outcome_events ?? []).map((event) => ({
+                ...event,
+                occurred_at: event.occurred_at ?? null,
+            })),
+
+            dropoff: {
+                ...parsed.data.dropoff,
+                happened: parsed.data.dropoff.happened,
+                moment: parsed.data.dropoff.moment ?? "unknown",
+                likely_reason: parsed.data.dropoff.likely_reason ?? "",
+                confidence: parsed.data.dropoff.confidence,
+            },
+        }
+
+        return analysis as ConversationAnalysis
     }
 
     console.error("[analyzeConversation] AI failed after retries", {
