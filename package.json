@@ -1,6 +1,10 @@
 {
   "name": "engravida-monorepo",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo dev",
     "dev:insights": "turbo dev --filter=insights",

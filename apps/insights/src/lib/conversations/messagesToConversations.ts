@@ -10,12 +10,14 @@ export async function messageToConversations({
     limit?: number;
 } = {}): Promise<AnalyzeConversationInput[]> {
     const cutoff = new Date(Date.now() - inactivityHours * 60 * 60 * 1000);
+    const oldestAllowed = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const { data, error } = await supabase
         .from("messages")
         .select("*")
         .is("conversation_id", null)
-        .order("client_id", { ascending: true })
+        .gte("sent_at", oldestAllowed.toISOString())
+        .lte("sent_at", cutoff.toISOString())
         .order("sent_at", { ascending: true })
         .limit(limit);
 

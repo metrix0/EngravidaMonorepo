@@ -11,7 +11,7 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
 
         const inactivityHours = Number(searchParams.get("inactivity_hours") ?? 12);
-        const limit = Number(searchParams.get("limit") ?? 1000);
+        const limit = Number(searchParams.get("limit") ?? 9999);
 
         console.log("[/api/analyze] starting pipeline", {
             inactivity_hours: inactivityHours,
