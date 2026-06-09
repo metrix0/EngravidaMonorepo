@@ -13,3 +13,4 @@ export { DashboardHeader } from "./dashboard/DashboardHeader";
 export { MainFilters } from "./dashboard/MainFilters";
 export { default as Pagination } from "./ui/Pagination";
 export { default as SidePanel } from "../../apps/insights/src/components/layout/SidePanel";
+export { default as AdvancedFilterButton} from "./ui/AdvancedFilterButton"

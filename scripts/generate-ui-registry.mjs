@@ -1,12 +1,21 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
-const root = process.cwd();
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 
-const componentsDir = path.join(root, "src", "components");
+// scripts/generate-ui-registry.mjs -> monorepo root
+const root = path.resolve(scriptDir, "..");
+
+// app running the script
+const appName = process.env.UI_APP ?? "insights";
+
+const componentsDir = path.join(root, "packages", "components", "ui");
 
 const outputFile = path.join(
     root,
+    "apps",
+    appName,
     "src",
     "app",
     "dev",
@@ -15,7 +24,7 @@ const outputFile = path.join(
 );
 
 const ignoredFiles = new Set(["index.ts", "index.tsx"]);
-const ignoredDirs = new Set(["node_modules"]);
+const ignoredDirs = new Set(["node_modules", ".next", "dist", "build"]);
 
 function sortDirs(dirs) {
     return dirs.sort((a, b) => {
@@ -26,6 +35,11 @@ function sortDirs(dirs) {
 }
 
 function walk(dir) {
+    if (!fs.existsSync(dir)) {
+        console.error(`[ui] Components dir does not exist: ${componentsDir}`);
+        return [];
+    }
+
     const entries = fs.readdirSync(dir, { withFileTypes: true });
 
     const dirs = sortDirs(
@@ -46,24 +60,20 @@ function walk(dir) {
 
     for (const file of files) {
         const filePath = path.join(dir, file);
-
         const source = fs.readFileSync(filePath, "utf8");
 
-        if (!source.includes("export const __uiDemo")) {
+        if (!source.includes("__uiDemo")) {
             continue;
         }
 
         const relativePath = path.relative(componentsDir, filePath);
         const withoutExtension = relativePath.replace(/\.tsx$/, "");
-
-        const importPath = `@/components/${withoutExtension.replaceAll(path.sep, "/")}`;
-
-        const componentName = withoutExtension.replaceAll(path.sep, "/");
+        const normalizedPath = withoutExtension.replaceAll(path.sep, "/");
 
         result.push({
             filePath,
-            importPath,
-            componentName,
+            importPath: `@engravida/components/ui/${normalizedPath}`,
+            componentName: normalizedPath,
         });
     }
 
@@ -74,7 +84,16 @@ function walk(dir) {
     return result;
 }
 
+console.log("[ui] Root:", root);
+console.log("[ui] Components:", path.relative(root, componentsDir));
+console.log("[ui] Output:", path.relative(root, outputFile));
+
 const files = walk(componentsDir);
+
+console.log("[ui] Found demo files:");
+for (const file of files) {
+    console.log("  -", path.relative(root, file.filePath));
+}
 
 const imports = [];
 const registryItems = [];
@@ -97,7 +116,7 @@ for (const file of files) {
 
 const content = `// AUTO-GENERATED FILE.
 // Do not edit manually.
-// Run: npm run ui:generate
+// Run: npm run ui
 
 ${imports.join("\n")}
 
@@ -106,6 +125,7 @@ ${registryItems.join("\n")}
 ].filter(Boolean);
 `;
 
+fs.mkdirSync(path.dirname(outputFile), { recursive: true });
 fs.writeFileSync(outputFile, content);
 
-console.log(`Generated UI registry with ${files.length} components.`);
+console.log(`[ui] Generated UI registry with ${files.length} components.`);

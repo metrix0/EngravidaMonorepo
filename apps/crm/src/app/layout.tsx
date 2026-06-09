@@ -2,7 +2,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { InviteRedirect } from "@engravida//components/auth/InviteRedirect";
+import { InviteRedirect } from "@engravida/components/auth/InviteRedirect";
 
 const inter = Inter({
     variable: "--font-inter",
