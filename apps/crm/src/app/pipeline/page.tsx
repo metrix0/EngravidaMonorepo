@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {memo, useCallback, useEffect, useMemo, useState} from "react";
 import {
     CalendarCheck,
     Filter,
@@ -8,9 +8,10 @@ import {
     Search,
     TrendingUp,
     User,
-    Users,
+    Users, X,
     XCircle,
 } from "lucide-react";
+
 
 import {
     AdvancedFilterButton,
@@ -20,6 +21,7 @@ import {
     HorizontalScroller,
     KpiCard,
     Skeleton,
+    Pagination,
 } from "@engravida/components";
 
 import SidePanelCRM from "../../components/layout/SidePanelCRM";
@@ -28,11 +30,32 @@ import type {
     CalendarPresetValue,
     DateRange,
 } from "@engravida/components/ui/CalendarButton";
+import {InitialsAvatar} from "@engravida/components/conversations/InitialsAvatar";
 
 type Pipeline = {
     id: string;
     name: string;
     active: boolean;
+};
+
+type AvailableClient = {
+    id: string;
+    name: string | null;
+    phone: string | null;
+    email: string | null;
+    pipeline_stage_id: string | null;
+    first_seen_at: string;
+    last_interaction_at: string;
+    utm_source: string | null;
+    utm_medium: string | null;
+    utm_campaign: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+type AvailableClientsResponse = {
+    clients: AvailableClient[];
+    stages: PipelineStage[];
 };
 
 type PipelineStage = {
@@ -74,11 +97,137 @@ export default function PipelinePage() {
         end: null,
     });
 
+    const [addClientModalOpen, setAddClientModalOpen] = useState(false);
+    const [addClientModalClosing, setAddClientModalClosing] = useState(false);
+    const [availableClients, setAvailableClients] = useState<AvailableClient[]>([]);
+    const [availableStages, setAvailableStages] = useState<PipelineStage[]>([]);
+    const [availableClientsLoading, setAvailableClientsLoading] = useState(false);
+    const [clientSearch, setClientSearch] = useState("");
+    const [addingClientId, setAddingClientId] = useState<string | null>(null);
+    const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
+    const [addingManyClients, setAddingManyClients] = useState(false);
+    const [availableClientsPage, setAvailableClientsPage] = useState(1);
+
+
     const [pipelineIds, setPipelineIds] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
 
     const selectedPipelineId = pipelineIds[0] ?? pipelines[0]?.id ?? null;
+
+    const toggleSelectedClient = useCallback((clientId: string) => {
+        setSelectedClientIds((current) =>
+            current.includes(clientId)
+                ? current.filter((id) => id !== clientId)
+                : [...current, clientId]
+        );
+    }, []);
+
+    const clearSelectedClients = useCallback(() => {
+        setSelectedClientIds([]);
+    }, []);
+
+    async function addSelectedClientsToPipeline() {
+        if (!selectedPipelineId || !firstStageInSelectedPipeline) return;
+        if (selectedClientIds.length === 0) return;
+
+        const selectedClients = availableClients.filter((client) =>
+            selectedClientIds.includes(client.id)
+        );
+
+        setAddingManyClients(true);
+
+        for (const client of selectedClients) {
+            const alreadyInCurrentPipeline = visibleStageIds.has(
+                client.pipeline_stage_id ?? ""
+            );
+
+            if (alreadyInCurrentPipeline) continue;
+
+            const response = await fetch("/api/pipeline/client-stage", {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    client_id: client.id,
+                    pipeline_id: selectedPipelineId,
+                    from_stage_id: client.pipeline_stage_id,
+                    to_stage_id: firstStageInSelectedPipeline.id,
+                    moved_by_attendant_id: null,
+                }),
+            });
+
+            if (!response.ok) {
+                console.error("Failed to add selected client", {
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: await readJsonSafely(response),
+                    client,
+                });
+                continue;
+            }
+
+            const updatedClient = {
+                ...client,
+                pipeline_stage_id: firstStageInSelectedPipeline.id,
+                updated_at: new Date().toISOString(),
+            };
+
+            setAvailableClients((current) =>
+                current.map((item) => (item.id === client.id ? updatedClient : item))
+            );
+
+            setClients((current) => {
+                const exists = current.some((item) => item.id === client.id);
+
+                if (exists) {
+                    return current.map((item) =>
+                        item.id === client.id ? updatedClient : item
+                    );
+                }
+
+                return [updatedClient, ...current];
+            });
+        }
+
+        setAddingManyClients(false);
+        closeAddClientModal();
+    }
+    
+    function closeAddClientModal() {
+        setAddClientModalClosing(true);
+
+        window.setTimeout(() => {
+            setAddClientModalOpen(false);
+            setAddClientModalClosing(false);
+            setClientSearch("");
+            clearSelectedClients();
+            setAvailableClientsPage(1);
+        }, 180);
+    }
+
+    async function openAddClientModal() {
+        setAddClientModalClosing(false);
+        setAddClientModalOpen(true);
+        setAvailableClientsLoading(true);
+
+        const response = await fetch("/api/pipeline/available-clients", {
+            cache: "no-store",
+        });
+
+        if (!response.ok) {
+            setAvailableClientsLoading(false);
+            console.error(await response.json());
+            return;
+        }
+
+        const data = (await response.json()) as AvailableClientsResponse;
+
+        setAvailableClients(data.clients ?? []);
+        setAvailableStages(data.stages ?? []);
+        setAvailableClientsLoading(false);
+    }
 
     async function load() {
         setLoading(true);
@@ -156,6 +305,36 @@ export default function PipelinePage() {
         return grouped;
     }, [filteredClients, visibleStages]);
 
+    const firstStageInSelectedPipeline = visibleStages[0] ?? null;
+
+    const availableStageById = useMemo(() => {
+        return new Map(availableStages.map((stage) => [stage.id, stage]));
+    }, [availableStages]);
+
+    const filteredAvailableClients = useMemo(() => {
+        const term = clientSearch.trim().toLowerCase();
+
+        return availableClients
+            .filter((client) => {
+                if (!term) return true;
+
+                return (
+                    client.name?.toLowerCase().includes(term) ||
+                    client.phone?.toLowerCase().includes(term) ||
+                    client.email?.toLowerCase().includes(term)
+                );
+            })
+            .sort(
+                (a, b) =>
+                    new Date(b.last_interaction_at).getTime() -
+                    new Date(a.last_interaction_at).getTime()
+            );
+    }, [availableClients, clientSearch]);
+
+    useEffect(() => {
+        setAvailableClientsPage(1);
+    }, [clientSearch]);
+
     const selectedPipeline = pipelines.find(
         (pipeline) => pipeline.id === selectedPipelineId
     );
@@ -225,22 +404,84 @@ export default function PipelinePage() {
         }
     }
 
+    async function addClientToPipeline(client: AvailableClient) {
+        if (!selectedPipelineId || !firstStageInSelectedPipeline) return;
+
+        const alreadyInCurrentPipeline = visibleStageIds.has(
+            client.pipeline_stage_id ?? ""
+        );
+
+        if (alreadyInCurrentPipeline) return;
+
+        setAddingClientId(client.id);
+
+        const response = await fetch("/api/pipeline/client-stage", {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                client_id: client.id,
+                pipeline_id: selectedPipelineId,
+                from_stage_id: client.pipeline_stage_id,
+                to_stage_id: firstStageInSelectedPipeline.id,
+                moved_by_attendant_id: null,
+            }),
+        });
+
+        if (!response.ok) {
+            setAddingClientId(null);
+            console.error("Failed to add client", {
+                status: response.status,
+                statusText: response.statusText,
+                body: await readJsonSafely(response),
+                client,
+            });
+            return;
+        }
+
+        const updatedClient = {
+            ...client,
+            pipeline_stage_id: firstStageInSelectedPipeline.id,
+            updated_at: new Date().toISOString(),
+        };
+
+        setAvailableClients((current) =>
+            current.map((item) => (item.id === client.id ? updatedClient : item))
+        );
+
+        setClients((current) => {
+            const exists = current.some((item) => item.id === client.id);
+
+            if (exists) {
+                return current.map((item) =>
+                    item.id === client.id ? updatedClient : item
+                );
+            }
+
+            return [updatedClient, ...current];
+        });
+
+        setAddingClientId(null);
+        closeAddClientModal();
+    }
+
     if (loading) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
-                <SidePanelCRM />
+                <SidePanelCRM/>
 
                 <section className="min-w-0 flex-1 px-8 py-8">
                     <div className="mb-8">
-                        <Skeleton className="h-10 w-48" />
-                        <Skeleton className="mt-3 h-5 w-96" />
+                        <Skeleton className="h-10 w-48"/>
+                        <Skeleton className="mt-3 h-5 w-96"/>
                     </div>
 
                     <div className="grid grid-cols-4 gap-5">
-                        <Skeleton className="h-32 rounded-2xl" />
-                        <Skeleton className="h-32 rounded-2xl" />
-                        <Skeleton className="h-32 rounded-2xl" />
-                        <Skeleton className="h-32 rounded-2xl" />
+                        <Skeleton className="h-32 rounded-2xl"/>
+                        <Skeleton className="h-32 rounded-2xl"/>
+                        <Skeleton className="h-32 rounded-2xl"/>
+                        <Skeleton className="h-32 rounded-2xl"/>
                     </div>
                 </section>
             </main>
@@ -249,7 +490,7 @@ export default function PipelinePage() {
 
     return (
         <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
-            <SidePanelCRM />
+            <SidePanelCRM/>
 
             <section className="min-w-0 flex-1 px-8 py-8">
                 <DashboardHeader
@@ -276,14 +517,14 @@ export default function PipelinePage() {
                     />
 
                     <FilterButton
-                        icon={<User size={16} />}
+                        icon={<User size={16}/>}
                         label="Todos os atendentes"
                         options={[]}
                         widthClassName="w-[230px]"
                     />
 
                     <FilterButton
-                        icon={<MapPin size={16} />}
+                        icon={<MapPin size={16}/>}
                         label="Todas as unidades"
                         options={[]}
                         widthClassName="w-[230px]"
@@ -294,7 +535,7 @@ export default function PipelinePage() {
                     <HorizontalScroller scrollAmount={400}>
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<Users size={26} />}
+                                icon={<Users size={26}/>}
                                 label="Clientes no funil"
                                 currentValue={totalClients}
                                 previousValue={null}
@@ -304,7 +545,7 @@ export default function PipelinePage() {
 
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<CalendarCheck size={26} />}
+                                icon={<CalendarCheck size={26}/>}
                                 label="Agendados"
                                 currentValue={scheduledCount}
                                 previousValue={null}
@@ -314,7 +555,7 @@ export default function PipelinePage() {
 
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<TrendingUp size={26} />}
+                                icon={<TrendingUp size={26}/>}
                                 label="Taxa de avanço"
                                 currentValue={advancementRate}
                                 previousValue={null}
@@ -325,7 +566,7 @@ export default function PipelinePage() {
 
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<XCircle size={26} />}
+                                icon={<XCircle size={26}/>}
                                 label="Perdidos"
                                 currentValue={lostCount}
                                 previousValue={null}
@@ -349,8 +590,9 @@ export default function PipelinePage() {
                         </div>
 
                         <div className="flex items-center gap-3">
-                            <div className="flex h-11 w-[360px] items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm">
-                                <Search size={17} className="text-muted" />
+                            <div
+                                className="flex h-11 w-[360px] items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm">
+                                <Search size={17} className="text-muted"/>
 
                                 <input
                                     value={search}
@@ -361,7 +603,7 @@ export default function PipelinePage() {
                             </div>
 
                             <AdvancedFilterButton
-                                icon={<Filter size={16} />}
+                                icon={<Filter size={16}/>}
                                 sections={[
                                     {
                                         id: "source",
@@ -369,10 +611,10 @@ export default function PipelinePage() {
                                         values: sourceValues,
                                         onChange: setSourceValues,
                                         options: [
-                                            { label: "Meta Ads", value: "meta_ads" },
-                                            { label: "Instagram", value: "instagram" },
-                                            { label: "Google", value: "google" },
-                                            { label: "Direto", value: "direct" },
+                                            {label: "Meta Ads", value: "meta_ads"},
+                                            {label: "Instagram", value: "instagram"},
+                                            {label: "Google", value: "google"},
+                                            {label: "Direto", value: "direct"},
                                         ],
                                     },
                                 ]}
@@ -380,6 +622,7 @@ export default function PipelinePage() {
 
                             <button
                                 type="button"
+                                onClick={openAddClientModal}
                                 className="flex h-11 cursor-pointer items-center gap-2 rounded-xl bg-brand px-5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
                             >
                                 + Cliente
@@ -405,6 +648,27 @@ export default function PipelinePage() {
                     </div>
                 </section>
             </section>
+            {addClientModalOpen && (
+                <AddClientToPipelineModal
+                    isClosing={addClientModalClosing}
+                    clients={filteredAvailableClients}
+                    stageById={availableStageById}
+                    selectedPipelineStageIds={visibleStageIds}
+                    selectedClientIds={selectedClientIds}
+                    currentPage={availableClientsPage}
+                    onPageChange={setAvailableClientsPage}
+                    search={clientSearch}
+                    setSearch={setClientSearch}
+                    loading={availableClientsLoading}
+                    addingClientId={addingClientId}
+                    addingManyClients={addingManyClients}
+                    firstStageName={firstStageInSelectedPipeline?.name ?? null}
+                    onClose={closeAddClientModal}
+                    onAddClient={addClientToPipeline}
+                    onToggleClient={toggleSelectedClient}
+                    onAddSelectedClients={addSelectedClientsToPipeline}
+                />
+            )}
         </main>
     );
 }
@@ -431,7 +695,7 @@ function PipelineColumn({
                 <div className="flex min-w-0 items-center gap-2">
                     <span
                         className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: stage.color ?? "#64748b" }}
+                        style={{backgroundColor: stage.color ?? "#64748b"}}
                     />
 
                     <h3 className="truncate text-sm font-bold text-text">
@@ -446,7 +710,7 @@ function PipelineColumn({
 
             <div className="space-y-3">
                 {clients.slice(0, 5).map((client) => (
-                    <PipelineClientCard key={client.id} client={client} />
+                    <PipelineClientCard key={client.id} client={client}/>
                 ))}
             </div>
 
@@ -462,7 +726,7 @@ function PipelineColumn({
     );
 }
 
-function PipelineClientCard({ client }: { client: Client }) {
+function PipelineClientCard({client}: { client: Client }) {
     return (
         <Card className="rounded-xl p-3">
             <div
@@ -472,9 +736,9 @@ function PipelineClientCard({ client }: { client: Client }) {
                 }}
                 className="flex cursor-grab gap-3 active:cursor-grabbing"
             >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-soft text-xs font-bold text-purple">
-                    {getInitials(client.name)}
-                </div>
+                <InitialsAvatar
+                    name={client.name ?? "Cliente"}
+                />
 
                 <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-bold text-text">
@@ -517,10 +781,9 @@ function sourceLabel(source: string | null) {
         facebook: "Meta Ads",
         instagram: "Instagram",
         google: "Google",
-        direct: "Direto",
     };
 
-    return map[source ?? "direct"] ?? source ?? "Direto";
+    return map[source ?? ""] ?? source ?? "";
 }
 
 function timeAgo(date: string) {
@@ -539,4 +802,370 @@ function normalize(value: string) {
         .toLowerCase()
         .normalize("NFD")
         .replace(/\p{Diacritic}/gu, "");
+}
+
+function AddClientToPipelineModal({
+                                      isClosing,
+                                      clients,
+                                      stageById,
+                                      selectedPipelineStageIds,
+                                      selectedClientIds,
+                                      currentPage,
+                                      onPageChange,
+                                      search,
+                                      setSearch,
+                                      loading,
+                                      addingClientId,
+                                      addingManyClients,
+                                      firstStageName,
+                                      onClose,
+                                      onAddClient,
+                                      onToggleClient,
+                                      onAddSelectedClients,
+                                  }: {
+    isClosing: boolean;
+    clients: AvailableClient[];
+    stageById: Map<string, PipelineStage>;
+    selectedPipelineStageIds: Set<string>;
+    selectedClientIds: string[];
+    currentPage: number;
+    onPageChange: (page: number) => void;
+    search: string;
+    setSearch: (value: string) => void;
+    loading: boolean;
+    addingClientId: string | null;
+    addingManyClients: boolean;
+    firstStageName: string | null;
+    onClose: () => void;
+    onAddClient: (client: AvailableClient) => void;
+    onToggleClient: (clientId: string) => void;
+    onAddSelectedClients: () => void;
+}) {
+    const selectedCount = selectedClientIds.length;
+
+    const selectedIdsSet = useMemo(() => {
+        return new Set(selectedClientIds);
+    }, [selectedClientIds]);
+
+    const clientsPerPage = 10;
+
+    const totalPages = Math.max(1, Math.ceil(clients.length / clientsPerPage));
+
+    const safeCurrentPage = Math.min(currentPage, totalPages);
+
+    const paginatedClients = clients.slice(
+        (safeCurrentPage - 1) * clientsPerPage,
+        safeCurrentPage * clientsPerPage
+    );
+
+    const gridTemplateColumns = "44px minmax(0, 1fr) 150px 140px 85px 120px";
+
+    return (
+        <div
+            className={[
+                "fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-6 py-8",
+                isClosing ? "animate-fade-out" : "animate-fade-in",
+            ].join(" ")}
+        ><div
+            className={[
+                "flex flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-2xl",
+                isClosing ? "animate-modal-pop-out" : "animate-modal-pop",
+            ].join(" ")}
+            style={{
+                    width: 920,
+                    maxWidth: "calc(100vw - 48px)",
+                    height: "82vh",
+                    maxHeight: "82vh",
+                }}
+            >
+                <div className="flex shrink-0 items-start justify-between border-border px-6 pt-5 pb-2">
+                    <div>
+                        <h2 className="text-2xl font-bold text-text">
+                            Adicionar cliente
+                        </h2>
+
+                        <p className="mt-1 text-sm text-muted">
+                            Selecione clientes para adicionar em{" "}
+                            <span className="font-bold text-text">
+                                {firstStageName ?? "primeira etapa"}
+                            </span>
+                            .
+                        </p>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="flex h-9 w-9 cursor-pointer shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-slate-100 hover:text-text"
+                    >
+                        <X size={18}/>
+                    </button>
+                </div>
+
+                <div className="shrink-0 border-b border-border px-6 py-4">
+                    <div
+                        className="flex h-11 items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm">
+                        <Search size={17} className="shrink-0 text-muted"/>
+
+                        <input
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Buscar por nome, telefone ou email..."
+                            className="w-full bg-transparent text-sm text-text outline-none placeholder:text-slate-400"
+                        />
+                    </div>
+                </div>
+
+                <div
+                    className="grid shrink-0 items-center border-b border-border bg-slate-50 px-4 py-3 text-xs font-bold tracking-wide text-muted"
+                    style={{gridTemplateColumns}}
+                >
+                    <div/>
+                    <div>Cliente</div>
+                    <div>Origem</div>
+                    <div>Estágio atual</div>
+                    <div className="whitespace-nowrap">Último contato</div>
+                    <div className="text-center">Ação</div>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+                    {loading ? (
+                        <div className="space-y-3 p-6">
+                            <Skeleton className="h-16 rounded-xl"/>
+                            <Skeleton className="h-16 rounded-xl"/>
+                            <Skeleton className="h-16 rounded-xl"/>
+                        </div>
+                    ) : clients.length === 0 ? (
+                        <div className="flex h-full items-center justify-center p-6">
+                            <div
+                                className="flex h-52 w-full items-center justify-center rounded-xl border border-dashed border-border bg-slate-50 text-sm font-medium text-muted">
+                                Nenhum cliente encontrado.
+                            </div>
+                        </div>
+                    ) : (
+                        <div>
+                            {paginatedClients.map((client) => {
+                                const currentStage = client.pipeline_stage_id
+                                    ? stageById.get(client.pipeline_stage_id)
+                                    : null;
+
+                                const alreadyInCurrentPipeline = selectedPipelineStageIds.has(
+                                    client.pipeline_stage_id ?? ""
+                                );
+
+                                return (
+                                    <SelectableClientRow
+                                        key={client.id}
+                                        client={client}
+                                        currentStageName={currentStage?.name ?? "Sem pipeline"}
+                                        checked={selectedIdsSet.has(client.id)}
+                                        alreadyInCurrentPipeline={alreadyInCurrentPipeline}
+                                        addingClientId={addingClientId}
+                                        addingManyClients={addingManyClients}
+                                        onToggleClient={onToggleClient}
+                                        onAddClient={onAddClient}
+                                    />
+                                );
+                            })}
+                        </div>
+                    )}
+                    <div className={"justify-center flex pt-12 pb-8"}>
+                        {totalPages > 1 && (
+                            <Pagination
+                                totalPages={totalPages}
+                                currentPage={safeCurrentPage}
+                                onPageChange={onPageChange}
+                            />
+                        )}
+                    </div>
+
+
+                </div>
+
+
+                <div
+                    className="flex shrink-0 items-center justify-between gap-4 border-t border-border bg-white px-6 py-4">
+                    <div className="min-w-[220px]">
+                        <p className="text-sm text-muted">
+                            {clients.length} cliente{clients.length === 1 ? "" : "s"}{" "}
+                            encontrado{clients.length === 1 ? "" : "s"}
+
+                            {selectedCount > 0 && (
+                                <span className="font-semibold text-text">
+                    {" "}
+                                    • {selectedCount} selecionado
+                                    {selectedCount === 1 ? "" : "s"}
+                </span>
+                            )}
+                        </p>
+                    </div>
+
+
+                    <div className="flex min-w-[290px] items-center justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="h-10 cursor-pointer rounded-xl border border-border bg-white px-5 text-sm font-semibold text-text shadow-sm transition hover:bg-slate-50"
+                        >
+                            Fechar
+                        </button>
+
+                        <button
+                            type="button"
+                            disabled={selectedCount === 0 || addingManyClients}
+                            onClick={onAddSelectedClients}
+                            className={[
+                                "h-10 rounded-xl px-5 text-sm font-semibold shadow-sm transition",
+                                selectedCount === 0 || addingManyClients
+                                    ? "cursor-not-allowed bg-slate-100 text-slate-400"
+                                    : "bg-brand text-white hover:opacity-90 cursor-pointer",
+                            ].join(" ")}
+                        >
+                            {addingManyClients
+                                ? "Adicionando..."
+                                : `Adicionar selecionados${
+                                    selectedCount > 0 ? ` (${selectedCount})` : ""
+                                }`}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+const SelectableClientRow = memo(function SelectableClientRow({
+                                                                  client,
+                                                                  currentStageName,
+                                                                  checked,
+                                                                  alreadyInCurrentPipeline,
+                                                                  addingClientId,
+                                                                  addingManyClients,
+                                                                  onToggleClient,
+                                                                  onAddClient,
+                                                              }: {
+    client: AvailableClient;
+    currentStageName: string;
+    checked: boolean;
+    alreadyInCurrentPipeline: boolean;
+    addingClientId: string | null;
+    addingManyClients: boolean;
+    onToggleClient: (clientId: string) => void;
+    onAddClient: (client: AvailableClient) => void;
+}) {
+    const gridTemplateColumns = "44px minmax(0, 1fr) 150px 140px 85px 120px";
+
+    return (
+        <div
+            className={[
+                "grid min-h-[76px] items-center border-b border-slate-100 px-4 py-3",
+                alreadyInCurrentPipeline
+                    ? "bg-slate-50 opacity-55"
+                    : "hover:bg-slate-50",
+            ].join(" ")}
+            style={{gridTemplateColumns}}
+        >
+            <div>
+                <button
+                    type="button"
+                    disabled={alreadyInCurrentPipeline}
+                    onClick={() => onToggleClient(client.id)}
+                    className={[
+                        "flex h-5 w-5 items-center justify-center rounded-md border text-[13px] font-bold leading-none",
+                        checked
+                            ? "border-brand bg-brand text-white"
+                            : "border-slate-300 bg-white text-transparent hover:border-brand",
+                        alreadyInCurrentPipeline
+                            ? "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400"
+                            : "bg-brand text-white shadow-sm hover:opacity-90 cursor-pointer",
+                    ].join(" ")}
+                >
+                    ✓
+                </button>
+            </div>
+
+            <div className="min-w-0 pr-3">
+                <div className="flex min-w-0 items-center gap-3">
+                    <InitialsAvatar name={client.name ?? "Cliente"}/>
+
+                    <div className="min-w-0">
+                        <div className="truncate text-sm font-bold text-text">
+                            {client.name ?? "Cliente sem nome"}
+                        </div>
+
+                        <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted">
+                            <span className="truncate">
+                                {client.phone ?? "Sem telefone"}
+                            </span>
+
+                            {client.email && (
+                                <>
+                                    <span className="text-slate-300">•</span>
+                                    <span className="truncate">{client.email}</span>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="min-w-0 pr-3">
+                {client.utm_source !== null && (
+                    <span
+                        className="inline-flex max-w-full truncate rounded-md bg-blue-soft px-2 py-1 text-xs font-bold text-blue">
+                    {sourceLabel(client.utm_source)}
+                </span>
+                )
+                }
+
+            </div>
+
+            <div className="min-w-0 pr-3">
+                <span
+                    className=" max-w-full inline-flex truncate rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600">
+                    {currentStageName}
+                </span>
+            </div>
+
+            <div className="whitespace-nowrap text-sm justify-center flex text-slate-700">
+                {timeAgo(client.last_interaction_at)}
+            </div>
+
+            <div className="text-right">
+                <button
+                    type="button"
+                    disabled={
+                        alreadyInCurrentPipeline ||
+                        addingClientId === client.id ||
+                        addingManyClients
+                    }
+                    onClick={() => onAddClient(client)}
+                    className={[
+                        "h-9 whitespace-nowrap rounded-xl px-3 text-sm font-semibold transition",
+                        alreadyInCurrentPipeline
+                            ? "cursor-not-allowed bg-slate-100 text-slate-400"
+                            : "bg-brand text-white shadow-sm hover:opacity-90 cursor-pointer",
+                    ].join(" ")}
+                >
+                    {alreadyInCurrentPipeline
+                        ? "Adicionado"
+                        : addingClientId === client.id
+                            ? "..."
+                            : "Adicionar"}
+                </button>
+            </div>
+        </div>
+    );
+});
+
+async function readJsonSafely(response: Response) {
+    const text = await response.text();
+
+    if (!text) return null;
+
+    try {
+        return JSON.parse(text);
+    } catch {
+        return text;
+    }
 }

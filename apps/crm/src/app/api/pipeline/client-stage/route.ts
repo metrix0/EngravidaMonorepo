@@ -10,53 +10,81 @@ type Body = {
 };
 
 export async function PATCH(request: Request) {
-    const body = (await request.json()) as Body;
+    try {
+        const body = (await request.json()) as Body;
 
-    if (!body.client_id || !body.pipeline_id || !body.to_stage_id) {
-        return NextResponse.json(
-            { error: "Missing required fields" },
-            { status: 400 }
-        );
-    }
+        if (!body.client_id || !body.pipeline_id || !body.to_stage_id) {
+            return NextResponse.json(
+                {
+                    ok: false,
+                    error: "Missing required fields",
+                    received: body,
+                },
+                { status: 400 }
+            );
+        }
 
-    const now = new Date().toISOString();
+        const now = new Date().toISOString();
 
-    const { error: updateError } = await supabase
-        .from("clients")
-        .update({
-            pipeline_stage_id: body.to_stage_id,
-            updated_at: now,
-        })
-        .eq("id", body.client_id);
+        const { data: updatedClient, error: updateError } = await supabase
+            .from("clients")
+            .update({
+                pipeline_stage_id: body.to_stage_id,
+                updated_at: now,
+            })
+            .eq("id", body.client_id)
+            .select("id, pipeline_stage_id")
+            .single();
 
-    if (updateError) {
+        if (updateError) {
+            return NextResponse.json(
+                {
+                    ok: false,
+                    error: "Failed to update client stage",
+                    details: updateError,
+                },
+                { status: 500 }
+            );
+        }
+
+        const { data: history, error: historyError } = await supabase
+            .from("pipeline_history")
+            .insert({
+                client_id: body.client_id,
+                pipeline_id: body.pipeline_id,
+                from_stage_id: body.from_stage_id,
+                to_stage_id: body.to_stage_id,
+                moved_by_attendant_id: body.moved_by_attendant_id ?? null,
+                moved_at: now,
+            })
+            .select("id")
+            .single();
+
+        if (historyError) {
+            return NextResponse.json(
+                {
+                    ok: false,
+                    error: "Client moved, but failed to insert pipeline history",
+                    details: historyError,
+                    updatedClient,
+                },
+                { status: 500 }
+            );
+        }
+
+        return NextResponse.json({
+            ok: true,
+            client: updatedClient,
+            history,
+        });
+    } catch (error) {
         return NextResponse.json(
             {
-                error: "Failed to update client stage",
-                details: updateError,
+                ok: false,
+                error: "Unexpected server error in client-stage route",
+                details: error instanceof Error ? error.message : String(error),
             },
             { status: 500 }
         );
     }
-
-    const { error: historyError } = await supabase.from("pipeline_history").insert({
-        client_id: body.client_id,
-        pipeline_id: body.pipeline_id,
-        from_stage_id: body.from_stage_id,
-        to_stage_id: body.to_stage_id,
-        moved_by_attendant_id: body.moved_by_attendant_id ?? null,
-        moved_at: now,
-    });
-
-    if (historyError) {
-        return NextResponse.json(
-            {
-                error: "Client moved, but failed to insert pipeline history",
-                details: historyError,
-            },
-            { status: 500 }
-        );
-    }
-
-    return NextResponse.json({ ok: true });
 }

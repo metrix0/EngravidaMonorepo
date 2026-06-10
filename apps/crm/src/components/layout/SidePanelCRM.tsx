@@ -26,7 +26,7 @@ type SidePanelProps = {
 
 const defaultItems: SidePanelItem[] = [
     { label: "Dashboard", href: "/", icon: <LayoutDashboard size={18} /> },
-    { label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18} /> },
+    { label: "Inbox", href: "/mensagens", icon: <MessagesSquare size={18} /> },
     { label: "Clientes", href: "/clientes", icon: <Users size={18} /> },
     { label: "Pipeline", href: "/pipeline", icon: <Footprints size={18} /> },
     // { label: "Atendentes", href: "/atendentes", icon: <Users size={18} /> },
