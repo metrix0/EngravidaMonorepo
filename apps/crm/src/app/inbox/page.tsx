@@ -1,7 +1,7 @@
 // src/app/inbox/page.tsx
 "use client";
 
-import {useMemo, useState} from "react";
+import {useCallback, useEffect, useState} from "react";
 import {
     Bot,
     ChevronLeft,
@@ -21,408 +21,26 @@ import {
 } from "lucide-react";
 import {FaFacebookF, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
-import {Card} from "@engravida/components";
+import {Card, Skeleton} from "@engravida/components";
 import {InitialsAvatar} from "@engravida/components/conversations/InitialsAvatar";
 import SidePanelCRM from "../../components/layout/SidePanelCRM";
 
-type InboxStatus = "open" | "pending" | "closed";
-type Channel = "WhatsApp" | "Instagram" | "Facebook";
+import {
+    addClientNote,
+    fetchInboxThread,
+    fetchInboxThreads,
+    sendInboxMessage,
+    updateInboxThread,
+} from "@/lib/inbox/inboxApi";
+import {useInboxRealtime} from "@/lib/inbox/useInboxRealtime";
+import type {
+    InboxChannel,
+    InboxStatus,
+    InboxThreadDetail,
+    InboxThreadListItem,
+} from "@/types/inbox";
 
-type Conversation = {
-    id: string;
-    name: string;
-    initials: string;
-    phone: string;
-    channel: Channel;
-    preview: string;
-    time: string;
-    unread?: number;
-    status: InboxStatus;
-    city: string;
-    funnel: string;
-    funnelStage: string;
-    intent: string;
-    origin: string;
-    campaign: string;
-    responsible: string;
-    lastContact: string;
-    messages: {
-        id: string;
-        from: "client" | "attendant";
-        text: string;
-        time: string;
-    }[];
-    notes: {
-        author: string;
-        time: string;
-        text: string;
-    }[];
-};
-
-const conversations: Conversation[] = [
-    {
-        id: "1",
-        name: "Tamiris",
-        initials: "TA",
-        phone: "55 11 98261-9605",
-        channel: "WhatsApp",
-        preview: "Oi, queria saber valores da FIV",
-        time: "5 min",
-        unread: 3,
-        status: "open",
-        city: "São Paulo",
-        funnel: "Funil FIV",
-        funnelStage: "Avaliação Agendada",
-        intent: "Agendar avaliação",
-        origin: "Google Ads",
-        campaign: "engravida-sao-paulo",
-        responsible: "Roberta Oliveira",
-        lastContact: "5 min",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Oi! Eu queria saber como funciona o tratamento de FIV e quais são os valores.",
-                time: "10:21",
-            },
-            {
-                id: "m2",
-                from: "attendant",
-                text: "Oi, Tamiris! Claro, posso te explicar. Primeiro fazemos uma avaliação com especialista para entender seu caso.",
-                time: "10:22",
-            },
-            {
-                id: "m3",
-                from: "client",
-                text: "Entendi. Essa avaliação pode ser online ou presencial?",
-                time: "10:23",
-            },
-            {
-                id: "m4",
-                from: "attendant",
-                text: "Pode ser presencial na unidade ou online, sim. Para FIV, geralmente indicamos avaliação inicial com exames em mãos.",
-                time: "10:24",
-            },
-            {
-                id: "m5",
-                from: "client",
-                text: "Perfeito. Queria ver um horário para essa semana, pode ser?",
-                time: "10:25",
-            },
-        ],
-        notes: [
-            {
-                author: "Roberta Oliveira",
-                time: "Hoje, 10:20",
-                text: "Cliente veio por Google Ads. Parece estar pronta para agendar.",
-            },
-        ],
-    },
-    {
-        id: "2",
-        name: "Ana Clara",
-        initials: "AC",
-        phone: "55 19 99812-4421",
-        channel: "Instagram",
-        preview: "Perfeito, qual unidade fica melhor?",
-        time: "18 min",
-        status: "open",
-        city: "Campinas",
-        funnel: "Funil Consulta",
-        funnelStage: "Escolha de unidade",
-        intent: "Escolher unidade",
-        origin: "Instagram",
-        campaign: "bio-instagram",
-        responsible: "Natália Rocha",
-        lastContact: "18 min",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Perfeito, qual unidade fica melhor?",
-                time: "10:07",
-            },
-            {
-                id: "m2",
-                from: "attendant",
-                text: "Posso te ajudar com isso. Você está em qual cidade?",
-                time: "10:09",
-            },
-        ],
-        notes: [],
-    },
-    {
-        id: "3",
-        name: "Juliana Costa",
-        initials: "JC",
-        phone: "55 11 97654-3321",
-        channel: "WhatsApp",
-        preview: "Tenho consulta marcada amanhã",
-        time: "32 min",
-        status: "pending",
-        city: "São Paulo",
-        funnel: "Funil Consulta",
-        funnelStage: "Consulta marcada",
-        intent: "Confirmar presença",
-        origin: "WhatsApp",
-        campaign: "retorno-organico",
-        responsible: "Roberta Oliveira",
-        lastContact: "32 min",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Tenho consulta marcada amanhã, queria confirmar o horário.",
-                time: "09:53",
-            },
-        ],
-        notes: [],
-    },
-    {
-        id: "4",
-        name: "Camila Souza",
-        initials: "CS",
-        phone: "55 21 98711-0021",
-        channel: "Facebook",
-        preview: "Pode me mandar os exames?",
-        time: "1 h",
-        unread: 1,
-        status: "open",
-        city: "Rio de Janeiro",
-        funnel: "Funil FIV",
-        funnelStage: "Envio de exames",
-        intent: "Coletar exames",
-        origin: "Facebook Ads",
-        campaign: "fiv-rj-leads",
-        responsible: "Natália Rocha",
-        lastContact: "1 h",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Pode me mandar os exames?",
-                time: "09:12",
-            },
-        ],
-        notes: [],
-    },
-    {
-        id: "5",
-        name: "Vanessa Carvalho",
-        initials: "VC",
-        phone: "55 11 99101-7777",
-        channel: "WhatsApp",
-        preview: "Obrigada! vou confirmar com meu marido",
-        time: "2 h",
-        status: "pending",
-        city: "São Paulo",
-        funnel: "Funil FIV",
-        funnelStage: "Aguardando decisão",
-        intent: "Pediu para pensar",
-        origin: "Google Ads",
-        campaign: "engravida-sao-paulo",
-        responsible: "Roberta Oliveira",
-        lastContact: "2 h",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Obrigada! vou confirmar com meu marido",
-                time: "08:20",
-            },
-        ],
-        notes: [],
-    },
-    {
-        id: "6",
-        name: "Marina Lopes",
-        initials: "ML",
-        phone: "55 11 94321-2200",
-        channel: "WhatsApp",
-        preview: "Quais horários vocês têm amanhã?",
-        time: "2 h",
-        status: "open",
-        city: "São Paulo",
-        funnel: "Funil Consulta",
-        funnelStage: "Escolha de horário",
-        intent: "Agendar avaliação",
-        origin: "Google Ads",
-        campaign: "consulta-online",
-        responsible: "Roberta Oliveira",
-        lastContact: "2 h",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Quais horários vocês têm amanhã?",
-                time: "08:11",
-            },
-        ],
-        notes: [],
-    },
-    {
-        id: "7",
-        name: "Paula Mendes",
-        initials: "PM",
-        phone: "55 19 95544-8811",
-        channel: "Instagram",
-        preview: "O atendimento é online?",
-        time: "3 h",
-        status: "open",
-        city: "Limeira",
-        funnel: "Funil FIV",
-        funnelStage: "Dúvida inicial",
-        intent: "Responder informação",
-        origin: "Instagram",
-        campaign: "stories-fiv",
-        responsible: "Natália Rocha",
-        lastContact: "3 h",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "O atendimento é online?",
-                time: "07:40",
-            },
-        ],
-        notes: [],
-    },
-    {
-        id: "8",
-        name: "Bianca Reis",
-        initials: "BR",
-        phone: "55 11 93210-3001",
-        channel: "Facebook",
-        preview: "Gostaria de saber sobre valores",
-        time: "4 h",
-        status: "open",
-        city: "Santo André",
-        funnel: "Funil Consulta",
-        funnelStage: "Preço apresentado",
-        intent: "Objeção de preço",
-        origin: "Facebook Ads",
-        campaign: "valor-consulta",
-        responsible: "Roberta Oliveira",
-        lastContact: "4 h",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Gostaria de saber sobre valores",
-                time: "06:30",
-            },
-        ],
-        notes: [],
-    },
-    {
-        id: "9",
-        name: "Carolina Vieira",
-        initials: "CV",
-        phone: "55 11 90090-1212",
-        channel: "WhatsApp",
-        preview: "Consigo remarcar minha consulta?",
-        time: "5 h",
-        status: "pending",
-        city: "São Paulo",
-        funnel: "Funil Consulta",
-        funnelStage: "Reagendamento",
-        intent: "Reagendar consulta",
-        origin: "WhatsApp",
-        campaign: "retorno-organico",
-        responsible: "Natália Rocha",
-        lastContact: "5 h",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Consigo remarcar minha consulta?",
-                time: "05:50",
-            },
-        ],
-        notes: [],
-    },
-    {
-        id: "10",
-        name: "Fernanda Nunes",
-        initials: "FN",
-        phone: "55 21 96555-4444",
-        channel: "WhatsApp",
-        preview: "Quero entender os próximos passos",
-        time: "6 h",
-        status: "open",
-        city: "Rio de Janeiro",
-        funnel: "Funil FIV",
-        funnelStage: "Explicação do tratamento",
-        intent: "Explicar tratamento",
-        origin: "Google Ads",
-        campaign: "fiv-rj",
-        responsible: "Roberta Oliveira",
-        lastContact: "6 h",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Quero entender os próximos passos",
-                time: "04:20",
-            },
-        ],
-        notes: [],
-    },
-    {
-        id: "11",
-        name: "Letícia Ramos",
-        initials: "LR",
-        phone: "55 11 97770-0110",
-        channel: "Instagram",
-        preview: "Vou ver com meu parceiro",
-        time: "7 h",
-        status: "pending",
-        city: "São Paulo",
-        funnel: "Funil FIV",
-        funnelStage: "Aguardando decisão",
-        intent: "Pediu para pensar",
-        origin: "Instagram",
-        campaign: "bio-instagram",
-        responsible: "Natália Rocha",
-        lastContact: "7 h",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Vou ver com meu parceiro",
-                time: "03:12",
-            },
-        ],
-        notes: [],
-    },
-    {
-        id: "12",
-        name: "Renata Alves",
-        initials: "RA",
-        phone: "55 11 92222-6789",
-        channel: "WhatsApp",
-        preview: "Obrigada pelo atendimento",
-        time: "1 d",
-        status: "closed",
-        city: "São Paulo",
-        funnel: "Funil Consulta",
-        funnelStage: "Finalizada",
-        intent: "Recebeu informação",
-        origin: "WhatsApp",
-        campaign: "retorno-organico",
-        responsible: "Roberta Oliveira",
-        lastContact: "1 d",
-        messages: [
-            {
-                id: "m1",
-                from: "client",
-                text: "Obrigada pelo atendimento",
-                time: "Ontem",
-            },
-        ],
-        notes: [],
-    },
-];
+type Conversation = InboxThreadDetail;
 
 const PAGE_SIZE = 10;
 
@@ -432,69 +50,199 @@ const scrollbarClass =
 export default function InboxPage() {
     const [status, setStatus] = useState<InboxStatus>("open");
     const [search, setSearch] = useState("");
-    const [selectedId, setSelectedId] = useState(conversations[0]?.id ?? "");
+    const [selectedId, setSelectedId] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
 
-    const filteredConversations = useMemo(() => {
-        return conversations.filter((conversation) => {
-            const matchesStatus = conversation.status === status;
-            const normalizedSearch = search.trim().toLowerCase();
+    const [threads, setThreads] = useState<InboxThreadListItem[]>([]);
+    const [totalThreads, setTotalThreads] = useState(0);
+    const [selectedThread, setSelectedThread] = useState<InboxThreadDetail | null>(null);
 
-            const matchesSearch =
-                !normalizedSearch ||
-                conversation.name.toLowerCase().includes(normalizedSearch) ||
-                conversation.phone.toLowerCase().includes(normalizedSearch) ||
-                conversation.preview.toLowerCase().includes(normalizedSearch);
+    const [isLoadingThreads, setIsLoadingThreads] = useState(true);
+    const [isLoadingSelectedThread, setIsLoadingSelectedThread] = useState(false);
 
-            return matchesStatus && matchesSearch;
-        });
-    }, [status, search]);
+    const totalPages = Math.max(1, Math.ceil(totalThreads / PAGE_SIZE));
 
-    const totalPages = Math.max(
-        1,
-        Math.ceil(filteredConversations.length / PAGE_SIZE)
-    );
+    const loadThreads = useCallback(async () => {
+        setIsLoadingThreads(true);
 
-    const paginatedConversations = filteredConversations.slice(
-        (currentPage - 1) * PAGE_SIZE,
-        currentPage * PAGE_SIZE
-    );
+        try {
+            const response = await fetchInboxThreads({
+                status,
+                search,
+                page: currentPage,
+                pageSize: PAGE_SIZE,
+            });
 
-    const selectedConversation =
-        conversations.find((conversation) => conversation.id === selectedId) ??
-        conversations[0];
+            setThreads(response.items);
+            setTotalThreads(response.total);
+
+            setSelectedId((currentSelectedId) => {
+                if (currentSelectedId) return currentSelectedId;
+                return response.items[0]?.id ?? null;
+            });
+        } catch (error) {
+            console.error("[inbox] failed to load threads", error);
+            setThreads([]);
+            setTotalThreads(0);
+        } finally {
+            setIsLoadingThreads(false);
+        }
+    }, [status, search, currentPage]);
+
+    const loadSelectedThread = useCallback(async () => {
+        if (!selectedId) {
+            setSelectedThread(null);
+            return;
+        }
+
+        setIsLoadingSelectedThread(true);
+
+        try {
+            const response = await fetchInboxThread(selectedId);
+            setSelectedThread(response.item);
+        } catch (error) {
+            console.error("[inbox] failed to load selected thread", error);
+            setSelectedThread(null);
+        } finally {
+            setIsLoadingSelectedThread(false);
+        }
+    }, [selectedId]);
+
+    useEffect(() => {
+        loadThreads();
+    }, [loadThreads]);
+
+    useEffect(() => {
+        loadSelectedThread();
+    }, [loadSelectedThread]);
+
+    useInboxRealtime({
+        selectedThreadId: selectedId,
+        selectedClientId: selectedThread?.client_id ?? null,
+        onThreadChange: loadThreads,
+        onSelectedThreadChange: loadSelectedThread,
+    });
+
+    function handleSelectThread(threadId: string) {
+        setSelectedId(threadId);
+
+        setThreads((currentThreads) =>
+            currentThreads.map((thread) =>
+                thread.id === threadId
+                    ? {
+                        ...thread,
+                        unread: 0,
+                    }
+                    : thread
+            )
+        );
+    }
 
     function handleStatusChange(nextStatus: InboxStatus) {
         setStatus(nextStatus);
         setCurrentPage(1);
     }
 
+    async function handleSendMessage(text: string) {
+        if (!selectedId || !text.trim()) return;
+
+        await sendInboxMessage({
+            threadId: selectedId,
+            text,
+        });
+
+        await Promise.all([loadThreads(), loadSelectedThread()]);
+    }
+
+    async function handleMoveStage(direction: "previous" | "next") {
+        if (!selectedId) return;
+
+        await updateInboxThread({
+            threadId: selectedId,
+            stageAction: direction,
+        });
+
+        await Promise.all([loadThreads(), loadSelectedThread()]);
+    }
+
+    async function handleAddNote(text: string) {
+        if (!selectedId || !text.trim()) return;
+
+        await addClientNote({
+            threadId: selectedId,
+            text,
+            authorName: "Atendente",
+        });
+
+        await loadSelectedThread();
+    }
+
+    const isOpeningPage = isLoadingThreads && threads.length === 0 && !selectedThread;
+    const isClientLoading = isLoadingSelectedThread || (!!selectedId && selectedThread?.id !== selectedId);
+
     return (
         <main className="flex h-screen w-screen overflow-hidden bg-white text-slate-900">
             <SidePanelCRM affectLayout={false} defaultExpanded={false}/>
 
             <section
-                className="grid h-screen min-w-0 flex-1 grid-cols-[minmax(270px,22vw)_minmax(420px,1fr)_minmax(285px,22vw)] gap-3 px-3 py-3">
-                <ConversationListPanel
-                    status={status}
-                    onStatusChange={handleStatusChange}
-                    search={search}
-                    onSearchChange={(value) => {
-                        setSearch(value);
-                        setCurrentPage(1);
-                    }}
-                    conversations={paginatedConversations}
-                    totalConversations={filteredConversations.length}
-                    totalPages={totalPages}
-                    currentPage={currentPage}
-                    onPageChange={setCurrentPage}
-                    selectedConversationId={selectedConversation?.id ?? ""}
-                    onSelectConversation={setSelectedId}
-                />
+                className="grid h-screen min-w-0 flex-1 grid-cols-[minmax(270px,22vw)_minmax(420px,1fr)_minmax(285px,22vw)] gap-3 px-3 py-3"
+            >
+                {isOpeningPage ? (
+                    <>
+                        <ConversationListSkeleton />
+                        <ChatPanelSkeleton />
+                        <CustomerPanelSkeleton />
+                    </>
+                ) : (
+                    <>
+                        <ConversationListPanel
+                            status={status}
+                            onStatusChange={handleStatusChange}
+                            search={search}
+                            onSearchChange={(value) => {
+                                setSearch(value);
+                                setCurrentPage(1);
+                            }}
+                            conversations={threads}
+                            totalConversations={totalThreads}
+                            totalPages={totalPages}
+                            currentPage={currentPage}
+                            onPageChange={setCurrentPage}
+                            selectedConversationId={selectedId ?? ""}
+                            onSelectConversation={handleSelectThread}
+                            isLoading={isLoadingThreads}
+                        />
 
-                <ChatPanel conversation={selectedConversation}/>
+                        {isClientLoading ? (
+                            <>
+                                <ChatPanelSkeleton />
+                                <CustomerPanelSkeleton />
+                            </>
+                        ) : selectedThread ? (
+                            <>
+                                <ChatPanel
+                                    conversation={selectedThread}
+                                    onSendMessage={handleSendMessage}
+                                    isLoading={isLoadingSelectedThread}
+                                />
 
-                <CustomerPanel conversation={selectedConversation}/>
+                                <CustomerPanel
+                                    conversation={selectedThread}
+                                    onMoveStage={handleMoveStage}
+                                    onAddNote={handleAddNote}
+                                />
+                            </>
+                        ) : (
+                            <>
+                                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 text-sm text-slate-400">
+                                    Selecione uma conversa
+                                </div>
+
+                                <div className="rounded-2xl border border-slate-200 bg-white"/>
+                            </>
+                        )}
+                    </>
+                )}
             </section>
         </main>
     );
@@ -512,18 +260,20 @@ function ConversationListPanel({
                                    onPageChange,
                                    selectedConversationId,
                                    onSelectConversation,
+                                   isLoading,
                                }: {
     status: InboxStatus;
     onStatusChange: (status: InboxStatus) => void;
     search: string;
     onSearchChange: (value: string) => void;
-    conversations: Conversation[];
+    conversations: InboxThreadListItem[];
     totalConversations: number;
     totalPages: number;
     currentPage: number;
     onPageChange: (page: number) => void;
     selectedConversationId: string;
     onSelectConversation: (id: string) => void;
+    isLoading: boolean;
 }) {
     return (
         <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -584,23 +334,26 @@ function ConversationListPanel({
             <div
                 className={`min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 ${scrollbarClass}`}
             >
-                {conversations.map((conversation) => (
-                    <ConversationListItem
-                        key={conversation.id}
-                        conversation={conversation}
-                        active={conversation.id === selectedConversationId}
-                        onClick={() => onSelectConversation(conversation.id)}
-                    />
-                ))}
+                {isLoading && <ConversationItemsSkeleton />}
 
-                {conversations.length === 0 && (
+                {!isLoading &&
+                    conversations.map((conversation) => (
+                        <ConversationListItem
+                            key={conversation.id}
+                            conversation={conversation}
+                            active={conversation.id === selectedConversationId}
+                            onClick={() => onSelectConversation(conversation.id)}
+                        />
+                    ))}
+
+                {!isLoading && conversations.length === 0 && (
                     <div
                         className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400">
                         Nenhuma conversa encontrada.
                     </div>
                 )}
 
-                {totalConversations > 0 && (
+                {!isLoading && totalConversations > 0 && (
                     <div className="space-y-4 py-3">
                         <div className="flex items-center justify-between px-2 text-sm text-slate-500">
                             <span>
@@ -631,7 +384,7 @@ function ConversationListItem({
                                   active,
                                   onClick,
                               }: {
-    conversation: Conversation;
+    conversation: InboxThreadListItem;
     active: boolean;
     onClick: () => void;
 }) {
@@ -689,11 +442,37 @@ function ConversationListItem({
     );
 }
 
-function ChatPanel({conversation}: { conversation: Conversation }) {
+function ChatPanel({
+                       conversation,
+                       onSendMessage,
+                       isLoading,
+                   }: {
+    conversation: Conversation;
+    onSendMessage: (text: string) => Promise<void>;
+    isLoading: boolean;
+}) {
+    const [messageText, setMessageText] = useState("");
+    const [isSending, setIsSending] = useState(false);
+
+    async function handleSubmit() {
+        const text = messageText.trim();
+
+        if (!text || isSending) return;
+
+        setIsSending(true);
+
+        try {
+            setMessageText("");
+            await onSendMessage(text);
+        } finally {
+            setIsSending(false);
+        }
+    }
+
     return (
         <Card className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden p-0">
             <div
-                className="grid pb-3 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-100 px-5">
+                className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-100 px-5 pb-3">
                 <div className="flex min-w-0 items-center gap-4">
                     <div className="shrink-0">
                         <InitialsAvatar name={conversation.name}/>
@@ -711,14 +490,16 @@ function ChatPanel({conversation}: { conversation: Conversation }) {
                             className="mt-1 flex min-w-0 items-center gap-3 overflow-hidden whitespace-nowrap text-sm text-slate-500">
                             <span className="shrink-0">{conversation.channel}</span>
                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green"/>
-                            <span className="shrink-0">Online agora</span>
+                            <span className="shrink-0">
+                                {isLoading ? "Atualizando..." : "Online agora"}
+                            </span>
                         </div>
                     </div>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-3">
-<span className="whitespace-nowrap rounded-xl bg-green-soft px-3 py-2 text-xs font-bold text-green">
-    Em atendimento
+                    <span className="whitespace-nowrap rounded-xl bg-green-soft px-3 py-2 text-xs font-bold text-green">
+                        Em atendimento
                     </span>
 
                     <span className="whitespace-nowrap rounded-xl bg-brand-soft px-3 py-2 text-xs font-bold text-brand">
@@ -749,6 +530,12 @@ function ChatPanel({conversation}: { conversation: Conversation }) {
                     {conversation.messages.map((message) => (
                         <ChatBubble key={message.id} message={message}/>
                     ))}
+
+                    {conversation.messages.length === 0 && (
+                        <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
+                            Nenhuma mensagem nesta conversa.
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -756,6 +543,14 @@ function ChatPanel({conversation}: { conversation: Conversation }) {
                 <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
                     <textarea
                         rows={1}
+                        value={messageText}
+                        onChange={(event) => setMessageText(event.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter" && !event.shiftKey) {
+                                event.preventDefault();
+                                handleSubmit();
+                            }
+                        }}
                         placeholder="Responder como atendente..."
                         className="max-h-28 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed outline-none placeholder:text-slate-400"
                         onInput={(event) => {
@@ -794,7 +589,9 @@ function ChatPanel({conversation}: { conversation: Conversation }) {
                         <button
                             type="button"
                             title="Enviar"
-                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition-colors hover:bg-brand/90"
+                            disabled={isSending || !messageText.trim()}
+                            onClick={handleSubmit}
+                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             <Send size={17}/>
                         </button>
@@ -835,7 +632,33 @@ function ChatBubble({
     );
 }
 
-function CustomerPanel({conversation}: { conversation: Conversation }) {
+function CustomerPanel({
+                           conversation,
+                           onMoveStage,
+                           onAddNote,
+                       }: {
+    conversation: Conversation;
+    onMoveStage: (direction: "previous" | "next") => Promise<void>;
+    onAddNote: (text: string) => Promise<void>;
+}) {
+    const [noteText, setNoteText] = useState("");
+    const [isSavingNote, setIsSavingNote] = useState(false);
+
+    async function handleAddNote() {
+        const text = noteText.trim();
+
+        if (!text || isSavingNote) return;
+
+        setIsSavingNote(true);
+
+        try {
+            setNoteText("");
+            await onAddNote(text);
+        } finally {
+            setIsSavingNote(false);
+        }
+    }
+
     return (
         <aside
             className={`h-full min-h-0 min-w-0 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${scrollbarClass}`}
@@ -856,12 +679,12 @@ function CustomerPanel({conversation}: { conversation: Conversation }) {
                         </div>
 
                         <div className="mt-1 text-sm text-slate-500">
-                            {conversation.phone}
+                            {conversation.phone ?? "Sem telefone"}
                         </div>
 
                         <div className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
                             <MapPin size={13}/>
-                            <span className="truncate">{conversation.city}</span>
+                            <span className="truncate">{conversation.city ?? "Sem cidade"}</span>
                         </div>
 
                         <div className="mt-2">
@@ -880,6 +703,7 @@ function CustomerPanel({conversation}: { conversation: Conversation }) {
                         <button
                             type="button"
                             title="Retroceder"
+                            onClick={() => onMoveStage("previous")}
                             className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-md transition-colors hover:bg-slate-50 hover:text-slate-900"
                         >
                             <ChevronLeft size={16}/>
@@ -888,6 +712,7 @@ function CustomerPanel({conversation}: { conversation: Conversation }) {
                         <button
                             type="button"
                             title="Avançar"
+                            onClick={() => onMoveStage("next")}
                             className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-md transition-colors hover:bg-slate-50 hover:text-slate-900"
                         >
                             <ChevronRight size={16}/>
@@ -924,7 +749,7 @@ function CustomerPanel({conversation}: { conversation: Conversation }) {
                     {conversation.notes.length > 0 ? (
                         <div className="space-y-3">
                             {conversation.notes.map((note) => (
-                                <div key={`${note.author}-${note.time}`} className="flex gap-3">
+                                <div key={note.id} className="flex gap-3">
                                     <div
                                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-soft text-xs font-bold text-purple">
                                         {getInitials(note.author)}
@@ -957,10 +782,29 @@ function CustomerPanel({conversation}: { conversation: Conversation }) {
                         </p>
                     )}
 
-                    <input
-                        placeholder="Adicionar nota..."
-                        className="mt-4 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none placeholder:text-slate-400"
-                    />
+                    <div className="mt-4 flex gap-2">
+                        <input
+                            value={noteText}
+                            onChange={(event) => setNoteText(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    handleAddNote();
+                                }
+                            }}
+                            placeholder="Adicionar nota..."
+                            className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 px-3 text-sm outline-none placeholder:text-slate-400"
+                        />
+
+                        <button
+                            type="button"
+                            disabled={isSavingNote || !noteText.trim()}
+                            onClick={handleAddNote}
+                            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <Send size={16}/>
+                        </button>
+                    </div>
                 </div>
             </PanelBlock>
 
@@ -969,9 +813,175 @@ function CustomerPanel({conversation}: { conversation: Conversation }) {
                     <CrmDataRow icon={<Bot size={16}/>} label="Origem:" value={conversation.origin}/>
                     <CrmDataRow icon={<Filter size={16}/>} label="Campanha:" value={conversation.campaign}/>
                     <CrmDataRow icon={<Clock size={16}/>} label="Último contato:" value={conversation.lastContact}/>
-                    <CrmDataRow icon={<UserRound size={16}/>} label="Responsável:" value={conversation.responsible}/>
+                    <CrmDataRow icon={<UserRound size={16}/>} label="Último responsável:" value={conversation.responsible}/>
                 </div>
             </PanelBlock>
+        </aside>
+    );
+}
+
+function ConversationListSkeleton() {
+    return (
+        <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+            <div className="mb-5 shrink-0">
+                <Skeleton className="h-9 w-28 rounded-lg" />
+                <Skeleton className="mt-3 h-4 w-56 rounded-lg" />
+            </div>
+
+            <Skeleton className="mb-4 h-10 w-full shrink-0 rounded-xl" />
+
+            <div className="mb-4 flex shrink-0 gap-3">
+                <Skeleton className="h-11 min-w-0 flex-1 rounded-xl" />
+                <Skeleton className="h-11 w-11 rounded-xl" />
+            </div>
+
+            <ConversationItemsSkeleton />
+        </section>
+    );
+}
+
+function ConversationItemsSkeleton() {
+    return (
+        <div className={`min-h-0 flex-1 space-y-3 overflow-hidden pr-1 ${scrollbarClass}`}>
+            {Array.from({length: 8}).map((_, index) => (
+                <div
+                    key={index}
+                    className="grid w-full grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+                >
+                    <Skeleton className="h-11 w-11 rounded-full" />
+
+                    <div className="min-w-0">
+                        <Skeleton className="h-4 w-32 rounded-lg" />
+                        <Skeleton className="mt-2 h-4 w-full rounded-lg" />
+                        <Skeleton className="mt-3 h-6 w-24 rounded-lg" />
+                    </div>
+
+                    <div className="flex h-full shrink-0 flex-col items-end justify-between">
+                        <Skeleton className="h-3 w-10 rounded-lg" />
+                        <Skeleton className="h-6 w-6 rounded-full" />
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function ChatPanelSkeleton() {
+    return (
+        <Card className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden p-0">
+            <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-100 px-5 pb-3">
+                <div className="flex min-w-0 items-center gap-4">
+                    <Skeleton className="h-11 w-11 rounded-full" />
+
+                    <div className="min-w-0">
+                        <Skeleton className="h-6 w-40 rounded-lg" />
+                        <Skeleton className="mt-2 h-4 w-52 rounded-lg" />
+                    </div>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-3">
+                    <Skeleton className="h-9 w-28 rounded-xl" />
+                    <Skeleton className="h-9 w-16 rounded-xl" />
+                    <Skeleton className="h-11 w-11 rounded-xl" />
+                </div>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-6 overflow-hidden bg-slate-50/40 px-5 py-5">
+                <div className="flex items-center justify-center gap-4">
+                    <Skeleton className="h-px w-44 rounded-lg" />
+                    <Skeleton className="h-6 w-16 rounded-lg" />
+                    <Skeleton className="h-px w-44 rounded-lg" />
+                </div>
+
+                <div className="space-y-6">
+                    <Skeleton className="h-20 w-[min(72%,520px)] rounded-2xl" />
+                    <Skeleton className="ml-auto h-24 w-[min(72%,520px)] rounded-2xl" />
+                    <Skeleton className="h-16 w-[min(62%,460px)] rounded-2xl" />
+                    <Skeleton className="ml-auto h-20 w-[min(68%,500px)] rounded-2xl" />
+                </div>
+            </div>
+
+            <div className="shrink-0 border-t border-slate-100 p-1 px-2 pb-0">
+                <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                    <Skeleton className="h-10 min-w-0 flex-1 rounded-lg" />
+
+                    <div className="flex shrink-0 items-center gap-1 pb-1">
+                        <Skeleton className="h-9 w-9 rounded-lg" />
+                        <Skeleton className="h-9 w-9 rounded-lg" />
+                        <Skeleton className="h-9 w-9 rounded-lg" />
+                        <Skeleton className="h-9 w-9 rounded-lg" />
+                    </div>
+                </div>
+            </div>
+        </Card>
+    );
+}
+
+function CustomerPanelSkeleton() {
+    return (
+        <aside
+            className={`h-full min-h-0 min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${scrollbarClass}`}
+        >
+            <Skeleton className="mb-4 h-6 w-20 rounded-lg" />
+
+            <div className="mb-5 flex w-full items-center justify-between rounded-2xl border border-slate-200 p-4">
+                <div className="flex min-w-0 items-center gap-4">
+                    <Skeleton className="h-11 w-11 rounded-full" />
+
+                    <div className="min-w-0">
+                        <Skeleton className="h-4 w-32 rounded-lg" />
+                        <Skeleton className="mt-2 h-4 w-36 rounded-lg" />
+                        <Skeleton className="mt-2 h-4 w-28 rounded-lg" />
+                        <Skeleton className="mt-3 h-6 w-24 rounded-lg" />
+                    </div>
+                </div>
+
+                <Skeleton className="h-5 w-5 rounded-lg" />
+            </div>
+
+            <div className="mb-4 rounded-2xl border border-slate-200 p-4">
+                <div className="flex min-w-0 items-center gap-3">
+                    <Skeleton className="h-11 w-11 rounded-full" />
+
+                    <div className="min-w-0 flex-1">
+                        <Skeleton className="h-4 w-28 rounded-lg" />
+                        <Skeleton className="mt-2 h-4 w-40 rounded-lg" />
+                    </div>
+                </div>
+            </div>
+
+            <div className="mb-4">
+                <Skeleton className="mb-2.5 h-5 w-32 rounded-lg" />
+
+                <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="space-y-3">
+                        <div className="flex gap-3">
+                            <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
+                            <div className="min-w-0 flex-1">
+                                <Skeleton className="h-3 w-32 rounded-lg" />
+                                <Skeleton className="mt-2 h-4 w-full rounded-lg" />
+                                <Skeleton className="mt-1 h-4 w-2/3 rounded-lg" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mt-4 flex gap-2">
+                        <Skeleton className="h-10 min-w-0 flex-1 rounded-xl" />
+                        <Skeleton className="h-10 w-10 rounded-xl" />
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <Skeleton className="mb-2.5 h-5 w-24 rounded-lg" />
+
+                <div className="space-y-3 rounded-2xl border border-slate-200 p-4">
+                    <Skeleton className="h-4 w-full rounded-lg" />
+                    <Skeleton className="h-4 w-11/12 rounded-lg" />
+                    <Skeleton className="h-4 w-10/12 rounded-lg" />
+                    <Skeleton className="h-4 w-full rounded-lg" />
+                </div>
+            </div>
         </aside>
     );
 }
@@ -1000,7 +1010,7 @@ function InboxStatusButton({
     );
 }
 
-function ChannelBadge({channel}: { channel: Channel }) {
+function ChannelBadge({channel}: { channel: InboxChannel }) {
     const className =
         channel === "WhatsApp"
             ? "bg-green-soft text-green"
@@ -1018,7 +1028,7 @@ function ChannelBadge({channel}: { channel: Channel }) {
     );
 }
 
-function ChannelIcon({channel}: { channel: Channel }) {
+function ChannelIcon({channel}: { channel: InboxChannel }) {
     if (channel === "WhatsApp") {
         return <FaWhatsapp size={14}/>;
     }
@@ -1041,9 +1051,8 @@ function PanelBlock({
         <div className="mb-4">
             {title && (
                 <h3 className="mb-2.5 text-base font-bold text-slate-950">{title}</h3>
-            )
+            )}
 
-            }
             {children}
         </div>
     );
@@ -1056,14 +1065,14 @@ function CrmDataRow({
                     }: {
     icon: React.ReactNode;
     label: string;
-    value: string;
+    value: string | null;
 }) {
     return (
         <div className="grid grid-cols-[22px_1fr_1.25fr] items-center gap-2">
             <div className="text-slate-400">{icon}</div>
             <div className="text-slate-500">{label}</div>
-            <div title={value} className="truncate font-bold text-slate-700">
-                {value}
+            <div title={value ?? "-"} className="truncate font-bold text-slate-700">
+                {value ?? "-"}
             </div>
         </div>
     );

@@ -7,6 +7,12 @@ import { parseBlipMessage } from "@/lib/importers/blip/parseBlipMessage";
 import { createClientFromParsedMessage } from "@/lib/clients/createClient";
 import { createAttendantFromParsedMessage } from "@/lib/attendants/createAttendant";
 
+type ThreadRow = {
+    id: string;
+    client_id: string;
+    latest_conversation_id: string | null;
+};
+
 export async function POST(request: Request) {
     try {
         const body = await request.json();
@@ -34,13 +40,21 @@ export async function POST(request: Request) {
 
         await createAttendantFromParsedMessage(parsedMessage);
 
-        const sequenceIndex = await getNextSequenceIndex(client.id);
+        const thread = await getOrCreateThreadForClient({
+            clientId: client.id,
+            source: "blip",
+            channel: "WhatsApp",
+        });
+
+        const sequenceIndex = await getNextSequenceIndex(thread.id);
 
         const { error: messageError } = await supabase.from("messages").insert({
             id: randomUUID(),
 
             client_id: client.id,
-            conversation_id: null,
+            conversation_id: thread.latest_conversation_id,
+
+            thread_id: thread.id,
 
             sender_type: parsedMessage.sender_type,
             sender_name: parsedMessage.sender_name,
@@ -53,7 +67,8 @@ export async function POST(request: Request) {
             external_id: parsedMessage.external_id,
             external_contact_id: parsedMessage.external_contact_id,
             external_thread_id: parsedMessage.external_thread_id,
-            external_attendant_id: parsedMessage.external_attendant_id || parsedMessage.sender_name,
+            external_attendant_id:
+                parsedMessage.external_attendant_id || parsedMessage.sender_name,
             interactive_option_id: parsedMessage.interactive_option_id,
         });
 
@@ -73,6 +88,7 @@ export async function POST(request: Request) {
             ok: true,
             received: true,
             saved: true,
+            thread_id: thread.id,
         });
     } catch (error) {
         console.error("[/api/blip/messages] Failed to receive payload", error);
@@ -90,11 +106,84 @@ export async function POST(request: Request) {
     }
 }
 
-async function getNextSequenceIndex(clientId: string) {
+async function getOrCreateThreadForClient({
+                                              clientId,
+                                              source,
+                                              channel,
+                                          }: {
+    clientId: string;
+    source: string;
+    channel: "WhatsApp" | "Instagram" | "Facebook";
+}): Promise<ThreadRow> {
+    const { data: existingThread, error: existingError } = await supabase
+        .from("thread")
+        .select("id, client_id, latest_conversation_id")
+        .eq("client_id", clientId)
+        .maybeSingle();
+
+    if (existingError) {
+        throw existingError;
+    }
+
+    if (existingThread) {
+        const { data, error } = await supabase
+            .from("thread")
+            .update({
+                source,
+                channel,
+                updated_at: new Date().toISOString(),
+            })
+            .eq("id", existingThread.id)
+            .select("id, client_id, latest_conversation_id")
+            .single();
+
+        if (error) {
+            throw error;
+        }
+
+        return data;
+    }
+
+    const { data, error } = await supabase
+        .from("thread")
+        .insert({
+            id: randomUUID(),
+            client_id: clientId,
+            latest_conversation_id: null,
+            status: "open",
+            channel,
+            source,
+            unread_count: 0,
+        })
+        .select("id, client_id, latest_conversation_id")
+        .single();
+
+    if (!error) {
+        return data;
+    }
+
+    if (error.code !== "23505") {
+        throw error;
+    }
+
+    const { data: retryThread, error: retryError } = await supabase
+        .from("thread")
+        .select("id, client_id, latest_conversation_id")
+        .eq("client_id", clientId)
+        .single();
+
+    if (retryError) {
+        throw retryError;
+    }
+
+    return retryThread;
+}
+
+async function getNextSequenceIndex(threadId: string) {
     const { data, error } = await supabase
         .from("messages")
         .select("sequence_index")
-        .eq("client_id", clientId)
+        .eq("thread_id", threadId)
         .order("sequence_index", { ascending: false })
         .limit(1)
         .maybeSingle();
