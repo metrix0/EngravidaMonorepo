@@ -15,6 +15,12 @@ import {
     Users,
 } from "lucide-react";
 
+import { InitialsAvatar } from "@engravida/components/conversations/InitialsAvatar";
+import {
+    fetchCurrentAttendant,
+    type CurrentAttendant,
+} from "@/lib/attendants/currentAttendantApi";
+
 type SidePanelItem = {
     label: string;
     href: string;
@@ -59,7 +65,11 @@ export default function SidePanelCRM({
     const [now, setNow] = useState<Date>(new Date());
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+    const [isSidebarHovered, setIsSidebarHovered] = useState(false);
 
+    const [currentAttendant, setCurrentAttendant] =
+        useState<CurrentAttendant | null>(null);
+    const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
     useEffect(() => {
         const interval = window.setInterval(() => {
@@ -69,6 +79,28 @@ export default function SidePanelCRM({
         return () => window.clearInterval(interval);
     }, []);
 
+    useEffect(() => {
+        let isMounted = true;
+
+        fetchCurrentAttendant()
+            .then((response) => {
+                if (!isMounted) return;
+
+                setCurrentAttendant(response.attendant);
+                setCurrentUserEmail(response.user?.email ?? null);
+            })
+            .catch((error) => {
+                console.error(
+                    "[SidePanelCRM] failed to load current attendant",
+                    error
+                );
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
     const updatedLabel = useMemo(() => {
         return formatTimeAgo(lastUpdatedAt, now);
     }, [lastUpdatedAt, now]);
@@ -76,6 +108,13 @@ export default function SidePanelCRM({
     const sidebarWidth = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
 
     const layoutWidth = affectLayout ? sidebarWidth : COLLAPSED_WIDTH;
+
+    const profileName =
+        currentAttendant?.name ?? currentUserEmail ?? "Usuário";
+
+    const profileSubtitle = currentAttendant
+        ? currentAttendant.units?.name ?? "Sem unidade"
+        : "Não vinculado a atendente";
 
     function handleRefresh() {
         setIsRefreshing(true);
@@ -95,7 +134,9 @@ export default function SidePanelCRM({
             style={{ width: layoutWidth }}
         >
             <aside
-                className="fixed left-0 top-0 z-50 flex h-screen max-h-screen flex-col overflow-y-auto border-r border-border bg-card py-7 shadow-sm transition-[width,box-shadow] duration-300 ease-out"
+                onMouseEnter={() => setIsSidebarHovered(true)}
+                onMouseLeave={() => setIsSidebarHovered(false)}
+                className="fixed left-0 top-0 z-50 h-screen max-h-screen overflow-visible border-r border-border bg-card shadow-sm transition-[width,box-shadow] duration-300 ease-out"
                 style={{
                     width: sidebarWidth,
                     boxShadow:
@@ -104,102 +145,149 @@ export default function SidePanelCRM({
                             : undefined,
                 }}
             >
-                <div className="mb-10 flex h-10 items-center justify-between px-5">
-                    <Link
-                        href="/"
-                        className={`flex h-10 min-w-0 cursor-pointer items-center overflow-hidden rounded-xl transition hover:bg-slate-50 ${
-                            isExpanded ? "w-[150px]" : "w-9"
+                <button
+                    type="button"
+                    onClick={() => setIsExpanded((value) => !value)}
+                    className={`absolute top-[46px] z-[60] flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-border bg-white text-muted shadow-sm transition-all duration-200 hover:bg-selection hover:text-text ${
+                        !isExpanded || isSidebarHovered
+                            ? "pointer-events-auto opacity-100"
+                            : "pointer-events-none opacity-0"
+                    } ${!isExpanded ? "right-5" : "-right-5"}`}
+                    title={isExpanded ? "Recolher menu" : "Expandir menu"}
+                >
+                    <ChevronRight
+                        size={18}
+                        className={`transition-transform duration-300 ${
+                            isExpanded ? "rotate-180" : "rotate-0"
                         }`}
-                    >
-                        {isExpanded && (
-                            <img
-                                src="/logo.png"
-                                className="block max-h-9 w-full object-contain"
-                                alt="Engravida"
+                    />
+                </button>
+
+                <div className="flex h-full max-h-screen flex-col overflow-y-auto overflow-x-hidden py-7">
+                    <div className="relative mb-10 flex h-10 items-center px-5">
+                        <Link
+                            href="/"
+                            className={`flex h-10 min-w-0 cursor-pointer items-center rounded-xl transition hover:bg-slate-50 ${
+                                isExpanded ? "w-full" : "w-9"
+                            }`}
+                        >
+                            {isExpanded && (
+                                <img
+                                    src="/logo.png"
+                                    className="block max-h-9 w-full object-contain"
+                                    alt="Engravida"
+                                />
+                            )}
+                        </Link>
+                    </div>
+
+                    <nav className="space-y-2 px-4">
+                        {items.map((item) => {
+                            const isActive =
+                                item.href === "/"
+                                    ? pathname === "/"
+                                    : pathname.startsWith(item.href);
+
+                            return (
+                                <Link
+                                    key={item.href}
+                                    href={item.href}
+                                    title={item.label}
+                                    className={`flex cursor-pointer items-center gap-4 rounded-xl px-4 py-3 text-sm transition-colors duration-150 ${
+                                        isActive
+                                            ? "bg-brand-soft font-semibold text-brand"
+                                            : "font-medium text-muted hover:bg-selection"
+                                    } ${
+                                        isExpanded
+                                            ? "justify-start"
+                                            : "justify-center"
+                                    }`}
+                                >
+                                    <span className="shrink-0">{item.icon}</span>
+
+                                    {isExpanded && (
+                                        <span className="min-w-0 truncate">
+                                            {item.label}
+                                        </span>
+                                    )}
+                                </Link>
+                            );
+                        })}
+                    </nav>
+
+                    <div className="mt-auto space-y-4 px-4">
+                        <button
+                            type="button"
+                            onClick={handleRefresh}
+                            title={`Atualizado ${updatedLabel}`}
+                            className={`flex truncate w-full min-w-0 cursor-pointer items-center rounded-xl border p-4 text-left text-sm text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
+                                isExpanded
+                                    ? "justify-between gap-3 border-border"
+                                    : "justify-center px-0 border-transparent"
+                            }`}
+                        >
+                            {isExpanded && (
+                                <div className="min-w-0 flex-1 truncate">
+                                    Atualizado {updatedLabel}
+                                </div>
+                            )}
+
+                            <RefreshCcw
+                                size={18}
+                                className={`min-w-[18px] ${
+                                    isRefreshing ? "animate-spin" : ""
+                                }`}
                             />
-                        )}
-                    </Link>
+                        </button>
 
-                    <button
-                        type="button"
-                        onClick={() => setIsExpanded((value) => !value)}
-                        className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-border bg-white text-muted transition-colors hover:bg-selection hover:text-text"
-                        title={isExpanded ? "Recolher menu" : "Expandir menu"}
-                    >
-                        <ChevronRight
-                            size={18}
-                            className={`transition-transform duration-300 ${
-                                isExpanded ? "rotate-180" : "rotate-0"
+                        <button
+                            type="button"
+                            title="Precisa de ajuda?"
+                            className={`flex w-full cursor-pointer truncate items-center rounded-xl border  p-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
+                                isExpanded ? "gap-3 border-border" : "justify-center border-transparent"
                             }`}
-                        />
-                    </button>
-                </div>
-                <nav className="space-y-2 px-4">
-                    {items.map((item) => {
-                        const isActive =
-                            item.href === "/"
-                                ? pathname === "/"
-                                : pathname.startsWith(item.href);
+                        >
+                            <HelpCircle
+                                className="shrink-0 text-brand"
+                                size={22}
+                            />
 
-                        return (
-                            <Link
-                                key={item.href}
-                                href={item.href}
-                                title={item.label}
-                                className={`flex cursor-pointer items-center gap-4 rounded-xl px-4 py-3 text-sm transition-colors duration-150 ${
-                                    isActive
-                                        ? "bg-brand-soft font-semibold text-brand"
-                                        : "font-medium text-muted hover:bg-selection"
-                                } ${isExpanded ? "justify-start" : "justify-center"}`}
-                            >
-                                <span className="shrink-0">{item.icon}</span>
+                            {isExpanded && <div>Precisa de ajuda?</div>}
+                        </button>
 
-                                {isExpanded && (
-                                    <span className="min-w-0 truncate">
-                                        {item.label}
-                                    </span>
+                        <div
+                            title={profileName}
+                            className={`flex w-full min-w-0 items-center rounded-xl border  bg-white p-3 text-left transition-colors duration-150 ${
+                                isExpanded ? "gap-3 border-border" : "justify-center border-transparent"
+                            }`}
+                        >
+                            <div className="relative shrink-0">
+                                <InitialsAvatar name={profileName} />
+
+                                {currentAttendant?.is_online && (
+                                    <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-green" />
                                 )}
-                            </Link>
-                        );
-                    })}
-                </nav>
-
-                <div className="mt-auto space-y-4 px-4">
-                    <button
-                        type="button"
-                        onClick={handleRefresh}
-                        title={`Atualizado ${updatedLabel}`}
-                        className={`flex w-full min-w-0 cursor-pointer items-center rounded-xl border border-border p-4 text-left text-sm text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
-                            isExpanded
-                                ? "justify-between gap-3"
-                                : "justify-center px-0"
-                        }`}
-                    >
-                        {isExpanded && (
-                            <div className="min-w-0 flex-1 truncate">
-                                Atualizado {updatedLabel}
                             </div>
-                        )}
 
-                        <RefreshCcw
-                            size={18}
-                            className={`min-w-[18px] ${
-                                isRefreshing ? "animate-spin" : ""
-                            }`}
-                        />
-                    </button>
+                            {isExpanded && (
+                                <div className="min-w-0 flex-1">
+                                    <div
+                                        title={profileName}
+                                        className="truncate text-sm font-bold text-slate-950"
+                                    >
+                                        {profileName}
+                                    </div>
 
-                    <button
-                        type="button"
-                        title="Precisa de ajuda?"
-                        className={`flex w-full cursor-pointer items-center rounded-xl border border-border p-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
-                            isExpanded ? "gap-3" : "justify-center"
-                        }`}
-                    >
-                        <HelpCircle className="shrink-0 text-brand" size={22} />
-
-                        {isExpanded && <div>Precisa de ajuda?</div>}
-                    </button>
+                                    <div
+                                        title={profileSubtitle}
+                                        className="mt-0.5 truncate text-xs text-slate-500"
+                                    >
+                                        {profileSubtitle}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </aside>
         </div>
@@ -213,7 +301,7 @@ function formatTimeAgo(date: Date, now: Date): string {
     const diffHours = Math.floor(diffMinutes / 60);
 
     if (diffSeconds < 30) return "agora";
-    if (diffMinutes < 1) return "há menos de 1 minuto";
+    if (diffMinutes < 1) return "há 1 minuto";
     if (diffMinutes === 1) return "há 1 minuto";
     if (diffMinutes < 60) return `há ${diffMinutes} minutos`;
     if (diffHours === 1) return "há 1 hora";

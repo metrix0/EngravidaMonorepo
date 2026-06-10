@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import {FaFacebookF, FaInstagram, FaWhatsapp} from "react-icons/fa6";
 
-import {Card, Skeleton} from "@engravida/components";
+import {Card, Pagination, Skeleton} from "@engravida/components";
 import {InitialsAvatar} from "@engravida/components/conversations/InitialsAvatar";
 import SidePanelCRM from "../../components/layout/SidePanelCRM";
 
@@ -1074,59 +1074,6 @@ function CrmDataRow({
             <div title={value ?? "-"} className="truncate font-bold text-slate-700">
                 {value ?? "-"}
             </div>
-        </div>
-    );
-}
-
-function Pagination({
-                        totalPages,
-                        currentPage,
-                        onPageChange,
-                    }: {
-    totalPages: number;
-    currentPage: number;
-    onPageChange: (page: number) => void;
-}) {
-    if (totalPages <= 1) return null;
-
-    return (
-        <div className="flex items-center justify-center gap-2">
-            <button
-                type="button"
-                disabled={currentPage === 1}
-                onClick={() => onPageChange(currentPage - 1)}
-                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-                <ChevronLeft size={17}/>
-            </button>
-
-            {Array.from({length: totalPages}).map((_, index) => {
-                const page = index + 1;
-
-                return (
-                    <button
-                        key={page}
-                        type="button"
-                        onClick={() => onPageChange(page)}
-                        className={`flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl text-sm font-semibold transition-colors ${
-                            page === currentPage
-                                ? "bg-brand-soft text-brand"
-                                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                        }`}
-                    >
-                        {page}
-                    </button>
-                );
-            })}
-
-            <button
-                type="button"
-                disabled={currentPage === totalPages}
-                onClick={() => onPageChange(currentPage + 1)}
-                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-                <ChevronRight size={17}/>
-            </button>
         </div>
     );
 }

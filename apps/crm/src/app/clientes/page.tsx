@@ -17,7 +17,7 @@ import {
     DashboardHeader,
     FilterButton,
     HorizontalScroller,
-    KpiCard,
+    KpiCard, Pagination,
     Skeleton,
 } from "@engravida/components";
 
@@ -56,6 +56,8 @@ type ClientsResponse = {
     clients: Client[];
     stages: PipelineStage[];
 };
+
+const CLIENTS_PER_PAGE = 100;
 
 const CLIENTES_DATE_PRESETS: CalendarPreset[] = [
     {
@@ -100,6 +102,8 @@ export default function ClientesPage() {
         start: null,
         end: null,
     });
+
+    const [currentPage, setCurrentPage] = useState(1);
 
     const [stageValues, setStageValues] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
@@ -188,6 +192,45 @@ export default function ClientesPage() {
     }, [clients, search, sourceValues, stageValues, interactionDateRange]);
 
     const totalClients = filteredClients.length;
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [
+        search,
+        stageValues,
+        sourceValues,
+        period,
+        selectedRange.start,
+        selectedRange.end,
+    ]);
+
+    const totalPages = Math.max(
+        1,
+        Math.ceil(filteredClients.length / CLIENTS_PER_PAGE)
+    );
+
+    useEffect(() => {
+        if (currentPage > totalPages) {
+            setCurrentPage(totalPages);
+        }
+    }, [currentPage, totalPages]);
+
+    const paginatedClients = useMemo(() => {
+        const start = (currentPage - 1) * CLIENTS_PER_PAGE;
+        const end = start + CLIENTS_PER_PAGE;
+
+        return filteredClients.slice(start, end);
+    }, [filteredClients, currentPage]);
+
+    const pageStart =
+        filteredClients.length === 0
+            ? 0
+            : (currentPage - 1) * CLIENTS_PER_PAGE + 1;
+
+    const pageEnd = Math.min(
+        currentPage * CLIENTS_PER_PAGE,
+        filteredClients.length
+    );
 
     const newLeads = filteredClients.filter((client) => {
         const stage = client.pipeline_stage_id
@@ -397,7 +440,7 @@ export default function ClientesPage() {
                             </thead>
 
                             <tbody>
-                            {filteredClients.map((client) => {
+                            {paginatedClients.map((client) => {
                                 const stage = client.pipeline_stage_id
                                     ? stageById.get(client.pipeline_stage_id)
                                     : null;
@@ -413,6 +456,20 @@ export default function ClientesPage() {
                             </tbody>
                         </table>
                     </div>
+                    {filteredClients.length > CLIENTS_PER_PAGE ?
+                        <div className="mt-5 flex items-center justify-between pb-16">
+                            <p className="text-sm font-medium text-muted">
+                                Mostrando {pageStart}–{pageEnd} de {filteredClients.length} clientes
+                            </p>
+
+                            <Pagination
+                                totalPages={totalPages}
+                                currentPage={currentPage}
+                                onPageChange={setCurrentPage}
+                            />
+                        </div>
+                    : <div className={"pb-12"}></div>
+                    }
                 </section>
             </section>
         </main>
