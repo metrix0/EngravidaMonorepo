@@ -108,21 +108,32 @@ export default function ClientesPage() {
     async function load() {
         setLoading(true);
 
-        const response = await fetch("/api/clientes", {
-            cache: "no-store",
-        });
+        try {
+            const response = await fetch("/api/clientes", {
+                cache: "no-store",
+            });
 
-        if (!response.ok) {
+            const text = await response.text();
+            const data = text ? JSON.parse(text) : null;
+
+            if (!response.ok) {
+                console.error("[clientes] failed to load", {
+                    status: response.status,
+                    statusText: response.statusText,
+                    data,
+                });
+                return;
+            }
+
+            setClients(data?.clients ?? []);
+            setStages(data?.stages ?? []);
+        } catch (error) {
+            console.error("[clientes] unexpected load error", error);
+            setClients([]);
+            setStages([]);
+        } finally {
             setLoading(false);
-            console.error(await response.json());
-            return;
         }
-
-        const data = (await response.json()) as ClientsResponse;
-
-        setClients(data.clients ?? []);
-        setStages(data.stages ?? []);
-        setLoading(false);
     }
 
     useEffect(() => {
