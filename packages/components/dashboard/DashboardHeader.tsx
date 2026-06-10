@@ -16,6 +16,7 @@ type DashboardHeaderProps = {
     setPeriod: (value: CalendarPresetValue | null) => void;
     selectedRange: DateRange;
     setSelectedRange: (value: DateRange) => void;
+    presets?: typeof DEFAULT_CALENDAR_PRESETS;
 };
 
 export function DashboardHeader({
@@ -25,6 +26,7 @@ export function DashboardHeader({
                                     setPeriod,
                                     selectedRange,
                                     setSelectedRange,
+                                    presets = DEFAULT_CALENDAR_PRESETS,
                                 }: DashboardHeaderProps) {
     return (
         <header className="mb-8 flex items-start justify-between">
@@ -47,7 +49,7 @@ export function DashboardHeader({
                         end: null,
                     });
                 }}
-                options={DEFAULT_CALENDAR_PRESETS.map((preset) => ({
+                options={presets.map((preset) => ({
                     value: preset.value,
                     label: preset.label,
                 }))}
@@ -61,7 +63,7 @@ export function DashboardHeader({
                             return;
                         }
 
-                        setPeriod("yesterday");
+                        setPeriod(presets[0]?.value ?? "yesterday");
                     }}
                 />
             </ButtonGroup>
