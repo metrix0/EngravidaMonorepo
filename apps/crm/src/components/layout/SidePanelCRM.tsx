@@ -18,6 +18,8 @@ import {
 import { InitialsAvatar } from "@engravida/components/conversations/InitialsAvatar";
 import {
     fetchCurrentAttendant,
+    setCurrentAttendantOffline,
+    setCurrentAttendantOnline,
     type CurrentAttendant,
 } from "@/lib/attendants/currentAttendantApi";
 
@@ -70,6 +72,8 @@ export default function SidePanelCRM({
     const [currentAttendant, setCurrentAttendant] =
         useState<CurrentAttendant | null>(null);
     const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+    const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
+    const [isStatusUpdating, setIsStatusUpdating] = useState(false);
 
     useEffect(() => {
         const interval = window.setInterval(() => {
@@ -128,6 +132,44 @@ export default function SidePanelCRM({
         }, 500);
     }
 
+    async function handleToggleAttendantStatus() {
+        if (!currentAttendant || isStatusUpdating) return;
+
+        setIsStatusUpdating(true);
+
+        try {
+            const response = currentAttendant.is_online
+                ? await setCurrentAttendantOffline()
+                : await setCurrentAttendantOnline();
+
+            setCurrentAttendant((current) => {
+                if (response.attendant) return response.attendant;
+                if (!current) return null;
+
+                return {
+                    ...current,
+                    is_online: !current.is_online,
+                };
+            });
+
+            setIsStatusMenuOpen(false);
+
+            if (pathname.startsWith("/inbox")) {
+                window.location.reload();
+                return;
+            }
+
+            router.refresh();
+        } catch (error) {
+            console.error(
+                "[SidePanelCRM] failed to update attendant status",
+                error
+            );
+        } finally {
+            setIsStatusUpdating(false);
+        }
+    }
+
     return (
         <div
             className="relative z-50 h-screen shrink-0 transition-[width] duration-300 ease-out"
@@ -162,6 +204,39 @@ export default function SidePanelCRM({
                         }`}
                     />
                 </button>
+
+                {isStatusMenuOpen && currentAttendant && (
+                    <div
+                        className={`z-[90] rounded-xl border border-border bg-white p-2 shadow-lg ${
+                            isExpanded
+                                ? "fixed bottom-7 left-[84x] w-44"
+                                : "fixed bottom-7 left-[84px] w-44"
+                        }`}
+                    >
+                        <button
+                            type="button"
+                            onClick={handleToggleAttendantStatus}
+                            disabled={isStatusUpdating}
+                            className="flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            <span>
+                                {isStatusUpdating
+                                    ? "Atualizando..."
+                                    : currentAttendant.is_online
+                                        ? "Ficar offline"
+                                        : "Ficar online"}
+                            </span>
+
+                            <span
+                                className={`h-2.5 w-2.5 rounded-full ${
+                                    currentAttendant.is_online
+                                        ? "bg-red"
+                                        : "bg-green"
+                                }`}
+                            />
+                        </button>
+                    </div>
+                )}
 
                 <div className="flex h-full max-h-screen flex-col overflow-y-auto overflow-x-hidden py-7">
                     <div className="relative mb-10 flex h-10 items-center px-5">
@@ -220,10 +295,10 @@ export default function SidePanelCRM({
                             type="button"
                             onClick={handleRefresh}
                             title={`Atualizado ${updatedLabel}`}
-                            className={`flex truncate w-full min-w-0 cursor-pointer items-center rounded-xl border p-4 text-left text-sm text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
+                            className={`flex w-full min-w-0 cursor-pointer items-center truncate rounded-xl border p-4 text-left text-sm text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
                                 isExpanded
                                     ? "justify-between gap-3 border-border"
-                                    : "justify-center px-0 border-transparent"
+                                    : "justify-center border-transparent px-0"
                             }`}
                         >
                             {isExpanded && (
@@ -243,8 +318,10 @@ export default function SidePanelCRM({
                         <button
                             type="button"
                             title="Precisa de ajuda?"
-                            className={`flex w-full cursor-pointer truncate items-center rounded-xl border  p-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
-                                isExpanded ? "gap-3 border-border" : "justify-center border-transparent"
+                            className={`flex w-full cursor-pointer truncate items-center rounded-xl border p-3 text-xs text-muted transition-colors duration-150 hover:bg-slate-50 hover:text-text ${
+                                isExpanded
+                                    ? "gap-3 border-border"
+                                    : "justify-center border-transparent"
                             }`}
                         >
                             <HelpCircle
@@ -255,18 +332,27 @@ export default function SidePanelCRM({
                             {isExpanded && <div>Precisa de ajuda?</div>}
                         </button>
 
-                        <div
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setIsStatusMenuOpen((value) => !value)
+                            }
                             title={profileName}
-                            className={`flex w-full min-w-0 items-center rounded-xl border  bg-white p-3 text-left transition-colors duration-150 ${
-                                isExpanded ? "gap-3 border-border" : "justify-center border-transparent"
+                            className={`flex w-full min-w-0 cursor-pointer items-center rounded-xl border bg-white p-3 text-left transition-colors duration-150 hover:bg-slate-50 ${
+                                isExpanded
+                                    ? "gap-3 border-border"
+                                    : "justify-center border-transparent"
                             }`}
                         >
                             <div className="relative shrink-0">
                                 <InitialsAvatar name={profileName} />
-
-                                {currentAttendant?.is_online && (
-                                    <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-green" />
-                                )}
+                                <span
+                                    className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
+                                        currentAttendant?.is_online
+                                            ? "bg-green"
+                                            : "bg-red"
+                                    }`}
+                                />
                             </div>
 
                             {isExpanded && (
@@ -286,7 +372,7 @@ export default function SidePanelCRM({
                                     </div>
                                 </div>
                             )}
-                        </div>
+                        </button>
                     </div>
                 </div>
             </aside>

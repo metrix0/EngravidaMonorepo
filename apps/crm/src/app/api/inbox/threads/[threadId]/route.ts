@@ -18,7 +18,7 @@ export async function GET(
 ) {
     const { threadId } = await params;
 
-    const { supabase, attendant } = await getCurrentAttendantFromRequest();
+    const { attendant } = await getCurrentAttendantFromRequest();
 
     if (!attendant || !attendant.is_online) {
         return NextResponse.json(
@@ -73,7 +73,7 @@ export async function GET(
         `)
         .eq("id", threadId)
         .eq("assigned_attendant_id", attendant.id)
-        .single();
+        .maybeSingle();
 
     if (threadError) {
         return NextResponse.json(
@@ -82,10 +82,17 @@ export async function GET(
         );
     }
 
+    if (!thread) {
+        return NextResponse.json(
+            { ok: false, error: "Thread not found" },
+            { status: 404 }
+        );
+    }
+
     const { data: messages, error: messagesError } = await supabase
         .from("messages")
         .select("*")
-        .eq("thread_id", threadId)
+        .eq("thread_id", thread.id)
         .order("sent_at", { ascending: true })
         .order("sequence_index", { ascending: true });
 
@@ -99,7 +106,7 @@ export async function GET(
     await supabase
         .from("thread")
         .update({ unread_count: 0 })
-        .eq("id", threadId)
+        .eq("id", thread.id)
         .eq("assigned_attendant_id", attendant.id);
 
     const response: InboxThreadDetailResponse = {
@@ -120,7 +127,7 @@ export async function PATCH(
     const { threadId } = await params;
     const body = await request.json();
 
-    const { supabase, attendant } = await getCurrentAttendantFromRequest();
+    const { attendant } = await getCurrentAttendantFromRequest();
 
     if (!attendant || !attendant.is_online) {
         return NextResponse.json(
@@ -142,7 +149,8 @@ export async function PATCH(
         const { error } = await supabase
             .from("thread")
             .update({ status })
-            .eq("id", threadId);
+            .eq("id", threadId)
+            .eq("assigned_attendant_id", attendant.id);
 
         if (error) {
             return NextResponse.json(
@@ -156,7 +164,8 @@ export async function PATCH(
         const { error } = await supabase
             .from("thread")
             .update({ unread_count: 0 })
-            .eq("id", threadId);
+            .eq("id", threadId)
+            .eq("assigned_attendant_id", attendant.id);
 
         if (error) {
             return NextResponse.json(
@@ -170,6 +179,7 @@ export async function PATCH(
         const result = await moveClientToStage({
             threadId,
             toStageId: body.pipeline_stage_id,
+            attendantId: attendant.id,
         });
 
         if (!result.ok) {
@@ -184,6 +194,7 @@ export async function PATCH(
         const result = await moveClientByDirection({
             threadId,
             direction: body.stage_action,
+            attendantId: attendant.id,
         });
 
         if (!result.ok) {
@@ -200,9 +211,11 @@ export async function PATCH(
 async function moveClientByDirection({
                                          threadId,
                                          direction,
+                                         attendantId,
                                      }: {
     threadId: string;
     direction: "previous" | "next";
+    attendantId: string;
 }) {
     const { data: thread, error: threadError } = await supabase
         .from("thread")
@@ -221,10 +234,15 @@ async function moveClientByDirection({
             )
         `)
         .eq("id", threadId)
-        .single();
+        .eq("assigned_attendant_id", attendantId)
+        .maybeSingle();
 
     if (threadError) {
         return { ok: false, error: threadError.message };
+    }
+
+    if (!thread) {
+        return { ok: false, error: "Thread not found" };
     }
 
     const client = thread.clients as any;
@@ -261,15 +279,18 @@ async function moveClientByDirection({
     return moveClientToStage({
         threadId,
         toStageId: nextStage.id,
+        attendantId,
     });
 }
 
 async function moveClientToStage({
                                      threadId,
                                      toStageId,
+                                     attendantId,
                                  }: {
     threadId: string;
     toStageId: string;
+    attendantId: string;
 }) {
     const { data: thread, error: threadError } = await supabase
         .from("thread")
@@ -283,10 +304,15 @@ async function moveClientToStage({
             )
         `)
         .eq("id", threadId)
-        .single();
+        .eq("assigned_attendant_id", attendantId)
+        .maybeSingle();
 
     if (threadError) {
         return { ok: false, error: threadError.message };
+    }
+
+    if (!thread) {
+        return { ok: false, error: "Thread not found" };
     }
 
     const client = thread.clients as any;
@@ -296,10 +322,14 @@ async function moveClientToStage({
         .from("pipeline_stages")
         .select("id, pipeline_id")
         .eq("id", toStageId)
-        .single();
+        .maybeSingle();
 
     if (toStageError) {
         return { ok: false, error: toStageError.message };
+    }
+
+    if (!toStage) {
+        return { ok: false, error: "Pipeline stage not found" };
     }
 
     const { error: updateError } = await supabase

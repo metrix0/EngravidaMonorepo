@@ -101,7 +101,10 @@ export default function InboxPage() {
             setTotalThreads(response.total);
 
             setSelectedId((currentSelectedId) => {
-                if (currentSelectedId) return currentSelectedId;
+                if (currentSelectedId) {
+                    return currentSelectedId;
+                }
+
                 return response.items[0]?.id ?? null;
             });
         } catch (error) {
@@ -256,9 +259,16 @@ export default function InboxPage() {
     const isOpeningPage =
         canShowInbox && isLoadingThreads && threads.length === 0 && !selectedThread;
 
+    const selectedListThread =
+        threads.find((thread) => thread.id === selectedId) ?? null;
+
+    const selectedThreadMatchesSelection =
+        !!selectedThread && selectedThread.id === selectedId;
+
     const isClientLoading =
         canShowInbox &&
-        (isLoadingSelectedThread || (!!selectedId && selectedThread?.id !== selectedId));
+        !!selectedId &&
+        (isLoadingSelectedThread || !selectedThreadMatchesSelection);
 
     return (
         <main className="flex h-screen w-screen overflow-hidden bg-white text-slate-900">
@@ -312,21 +322,22 @@ export default function InboxPage() {
                             isLoading={isLoadingThreads}
                         />
 
-                        {isClientLoading ? (
-                            <>
-                                <ChatPanelSkeleton />
-                                <CustomerPanelSkeleton />
-                            </>
-                        ) : selectedThread ? (
+                        {selectedId ? (
                             <>
                                 <ChatPanel
-                                    conversation={selectedThread}
+                                    conversation={selectedThreadMatchesSelection ? selectedThread : null}
+                                    headerConversation={
+                                        selectedThreadMatchesSelection ? selectedThread : selectedListThread
+                                    }
                                     onSendMessage={handleSendMessage}
-                                    isLoading={isLoadingSelectedThread}
+                                    isLoading={isClientLoading}
                                 />
 
                                 <CustomerPanel
-                                    conversation={selectedThread}
+                                    conversation={selectedThreadMatchesSelection ? selectedThread : null}
+                                    headerConversation={
+                                        selectedThreadMatchesSelection ? selectedThread : selectedListThread
+                                    }
                                     onMoveStage={handleMoveStage}
                                     onAddNote={handleAddNote}
                                 />
@@ -543,20 +554,25 @@ function ConversationListItem({
 
 function ChatPanel({
                        conversation,
+                       headerConversation,
                        onSendMessage,
                        isLoading,
                    }: {
-    conversation: Conversation;
+    conversation: Conversation | null;
+    headerConversation: Pick<Conversation, "name" | "channel"> | Pick<InboxThreadListItem, "name" | "channel"> | null;
     onSendMessage: (text: string) => Promise<void>;
     isLoading: boolean;
 }) {
     const [messageText, setMessageText] = useState("");
     const [isSending, setIsSending] = useState(false);
 
+    const headerName = headerConversation?.name ?? "Carregando conversa";
+    const headerChannel = headerConversation?.channel ?? "-";
+
     async function handleSubmit() {
         const text = messageText.trim();
 
-        if (!text || isSending) return;
+        if (!conversation || !text || isSending) return;
 
         setIsSending(true);
 
@@ -574,20 +590,20 @@ function ChatPanel({
                 className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-100 px-5 pb-3">
                 <div className="flex min-w-0 items-center gap-4">
                     <div className="shrink-0">
-                        <InitialsAvatar name={conversation.name}/>
+                        <InitialsAvatar name={headerName}/>
                     </div>
 
                     <div className="min-w-0">
                         <div
-                            title={conversation.name}
+                            title={headerName}
                             className="truncate whitespace-nowrap text-xl font-bold text-slate-950"
                         >
-                            {conversation.name}
+                            {headerName}
                         </div>
 
                         <div
                             className="mt-1 flex min-w-0 items-center gap-3 overflow-hidden whitespace-nowrap text-sm text-slate-500">
-                            <span className="shrink-0">{conversation.channel}</span>
+                            <span className="shrink-0">{headerChannel}</span>
                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green"/>
                             <span className="shrink-0">
                                 {isLoading ? "Atualizando..." : "Online agora"}
@@ -626,14 +642,20 @@ function ChatPanel({
                 </div>
 
                 <div className="space-y-6">
-                    {conversation.messages.map((message) => (
-                        <ChatBubble key={message.id} message={message}/>
-                    ))}
+                    {isLoading && !conversation ? (
+                        <ChatMessagesSkeleton />
+                    ) : (
+                        <>
+                            {conversation?.messages.map((message) => (
+                                <ChatBubble key={message.id} message={message}/>
+                            ))}
 
-                    {conversation.messages.length === 0 && (
-                        <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
-                            Nenhuma mensagem nesta conversa.
-                        </div>
+                            {conversation?.messages.length === 0 && (
+                                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
+                                    Nenhuma mensagem nesta conversa.
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
             </div>
@@ -643,6 +665,7 @@ function ChatPanel({
                     <textarea
                         rows={1}
                         value={messageText}
+                        disabled={!conversation}
                         onChange={(event) => setMessageText(event.target.value)}
                         onKeyDown={(event) => {
                             if (event.key === "Enter" && !event.shiftKey) {
@@ -688,7 +711,7 @@ function ChatPanel({
                         <button
                             type="button"
                             title="Enviar"
-                            disabled={isSending || !messageText.trim()}
+                            disabled={isSending || !messageText.trim() || !conversation}
                             onClick={handleSubmit}
                             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg bg-brand text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -733,20 +756,25 @@ function ChatBubble({
 
 function CustomerPanel({
                            conversation,
+                           headerConversation,
                            onMoveStage,
                            onAddNote,
                        }: {
-    conversation: Conversation;
+    conversation: Conversation | null;
+    headerConversation: Pick<Conversation, "name" | "channel"> | Pick<InboxThreadListItem, "name" | "channel"> | null;
     onMoveStage: (direction: "previous" | "next") => Promise<void>;
     onAddNote: (text: string) => Promise<void>;
 }) {
     const [noteText, setNoteText] = useState("");
     const [isSavingNote, setIsSavingNote] = useState(false);
 
+    const headerName = headerConversation?.name ?? "Carregando cliente";
+    const headerChannel = headerConversation?.channel ?? "WhatsApp";
+
     async function handleAddNote() {
         const text = noteText.trim();
 
-        if (!text || isSavingNote) return;
+        if (!conversation || !text || isSavingNote) return;
 
         setIsSavingNote(true);
 
@@ -767,27 +795,36 @@ function CustomerPanel({
             <button
                 className="mb-5 flex w-full cursor-pointer items-center justify-between rounded-2xl border border-slate-200 p-4 text-left transition-colors hover:bg-slate-50">
                 <div className="flex min-w-0 items-center gap-4">
-                    <InitialsAvatar name={conversation.name}/>
+                    <InitialsAvatar name={headerName}/>
 
                     <div className="min-w-0">
                         <div
-                            title={conversation.name}
+                            title={headerName}
                             className="truncate font-bold text-slate-950"
                         >
-                            {conversation.name}
+                            {headerName}
                         </div>
 
-                        <div className="mt-1 text-sm text-slate-500">
-                            {conversation.phone ?? "Sem telefone"}
-                        </div>
+                        {conversation ? (
+                            <>
+                                <div className="mt-1 text-sm text-slate-500">
+                                    {conversation.phone ?? "Sem telefone"}
+                                </div>
 
-                        <div className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
-                            <MapPin size={13}/>
-                            <span className="truncate">{conversation.city ?? "Sem cidade"}</span>
-                        </div>
+                                <div className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
+                                    <MapPin size={13}/>
+                                    <span className="truncate">{conversation.city ?? "Sem cidade"}</span>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <Skeleton className="mt-2 h-4 w-36 rounded-lg" />
+                                <Skeleton className="mt-2 h-4 w-28 rounded-lg" />
+                            </>
+                        )}
 
                         <div className="mt-2">
-                            <ChannelBadge channel={conversation.channel}/>
+                            <ChannelBadge channel={headerChannel}/>
                         </div>
                     </div>
                 </div>
@@ -795,126 +832,132 @@ function CustomerPanel({
                 <ChevronRight size={18} className="shrink-0 text-slate-400"/>
             </button>
 
-            <PanelBlock>
-                <div className="group/funnel relative rounded-2xl border border-slate-200 p-4">
-                    <div
-                        className="pointer-events-none absolute right-3 top-3 z-30 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/funnel:pointer-events-auto group-hover/funnel:opacity-100">
-                        <button
-                            type="button"
-                            title="Retroceder"
-                            onClick={() => onMoveStage("previous")}
-                            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-md transition-colors hover:bg-slate-50 hover:text-slate-900"
-                        >
-                            <ChevronLeft size={16}/>
-                        </button>
-
-                        <button
-                            type="button"
-                            title="Avançar"
-                            onClick={() => onMoveStage("next")}
-                            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-md transition-colors hover:bg-slate-50 hover:text-slate-900"
-                        >
-                            <ChevronRight size={16}/>
-                        </button>
-                    </div>
-
-                    <div className="flex min-w-0 items-center gap-3">
-                        <div
-                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
-                            <Funnel size={18}/>
-                        </div>
-
-                        <div className="min-w-0 flex-1">
+            {conversation ? (
+                <>
+                    <PanelBlock>
+                        <div className="group/funnel relative rounded-2xl border border-slate-200 p-4">
                             <div
-                                title={conversation.funnel}
-                                className="text-sm font-bold text-slate-950"
-                            >
-                                {conversation.funnel}
+                                className="pointer-events-none absolute right-3 top-3 z-30 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/funnel:pointer-events-auto group-hover/funnel:opacity-100">
+                                <button
+                                    type="button"
+                                    title="Retroceder"
+                                    onClick={() => onMoveStage("previous")}
+                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-md transition-colors hover:bg-slate-50 hover:text-slate-900"
+                                >
+                                    <ChevronLeft size={16}/>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    title="Avançar"
+                                    onClick={() => onMoveStage("next")}
+                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-md transition-colors hover:bg-slate-50 hover:text-slate-900"
+                                >
+                                    <ChevronRight size={16}/>
+                                </button>
                             </div>
 
-                            <div
-                                title={conversation.funnelStage}
-                                className="mt-1 text-sm text-slate-500"
-                            >
-                                {conversation.funnelStage}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </PanelBlock>
+                            <div className="flex min-w-0 items-center gap-3">
+                                <div
+                                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
+                                    <Funnel size={18}/>
+                                </div>
 
-            <PanelBlock title="Notas internas">
-                <div className="rounded-2xl border border-slate-200 p-4">
-                    {conversation.notes.length > 0 ? (
-                        <div className="space-y-3">
-                            {conversation.notes.map((note) => (
-                                <div key={note.id} className="flex gap-3">
+                                <div className="min-w-0 flex-1">
                                     <div
-                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-soft text-xs font-bold text-purple">
-                                        {getInitials(note.author)}
+                                        title={conversation.funnel}
+                                        className="text-sm font-bold text-slate-950"
+                                    >
+                                        {conversation.funnel}
                                     </div>
 
-                                    <div className="min-w-0 flex-1">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div
-                                                title={note.author}
-                                                className="truncate text-xs font-bold text-slate-800"
-                                            >
-                                                {note.author}
-                                            </div>
-
-                                            <div className="shrink-0 text-xs text-slate-400">
-                                                {note.time}
-                                            </div>
-                                        </div>
-
-                                        <p className="mt-1 text-sm leading-relaxed text-slate-500">
-                                            {note.text}
-                                        </p>
+                                    <div
+                                        title={conversation.funnelStage}
+                                        className="mt-1 text-sm text-slate-500"
+                                    >
+                                        {conversation.funnelStage}
                                     </div>
                                 </div>
-                            ))}
+                            </div>
                         </div>
-                    ) : (
-                        <p className="text-sm text-slate-400">
-                            Nenhuma nota interna.
-                        </p>
-                    )}
+                    </PanelBlock>
 
-                    <div className="mt-4 flex gap-2">
-                        <input
-                            value={noteText}
-                            onChange={(event) => setNoteText(event.target.value)}
-                            onKeyDown={(event) => {
-                                if (event.key === "Enter") {
-                                    event.preventDefault();
-                                    handleAddNote();
-                                }
-                            }}
-                            placeholder="Adicionar nota..."
-                            className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 px-3 text-sm outline-none placeholder:text-slate-400"
-                        />
+                    <PanelBlock title="Notas internas">
+                        <div className="rounded-2xl border border-slate-200 p-4">
+                            {conversation.notes.length > 0 ? (
+                                <div className="space-y-3">
+                                    {conversation.notes.map((note) => (
+                                        <div key={note.id} className="flex gap-3">
+                                            <div
+                                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-soft text-xs font-bold text-purple">
+                                                {getInitials(note.author)}
+                                            </div>
 
-                        <button
-                            type="button"
-                            disabled={isSavingNote || !noteText.trim()}
-                            onClick={handleAddNote}
-                            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            <Send size={16}/>
-                        </button>
-                    </div>
-                </div>
-            </PanelBlock>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div
+                                                        title={note.author}
+                                                        className="truncate text-xs font-bold text-slate-800"
+                                                    >
+                                                        {note.author}
+                                                    </div>
 
-            <PanelBlock title="Dados CRM">
-                <div className="space-y-3 rounded-2xl border border-slate-200 p-4 text-sm">
-                    <CrmDataRow icon={<Bot size={16}/>} label="Origem:" value={conversation.origin}/>
-                    <CrmDataRow icon={<Filter size={16}/>} label="Campanha:" value={conversation.campaign}/>
-                    <CrmDataRow icon={<Clock size={16}/>} label="Último contato:" value={conversation.lastContact}/>
-                    <CrmDataRow icon={<UserRound size={16}/>} label="Último responsável:" value={conversation.responsible}/>
-                </div>
-            </PanelBlock>
+                                                    <div className="shrink-0 text-xs text-slate-400">
+                                                        {note.time}
+                                                    </div>
+                                                </div>
+
+                                                <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                                                    {note.text}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-slate-400">
+                                    Nenhuma nota interna.
+                                </p>
+                            )}
+
+                            <div className="mt-4 flex gap-2">
+                                <input
+                                    value={noteText}
+                                    onChange={(event) => setNoteText(event.target.value)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                            event.preventDefault();
+                                            handleAddNote();
+                                        }
+                                    }}
+                                    placeholder="Adicionar nota..."
+                                    className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 px-3 text-sm outline-none placeholder:text-slate-400"
+                                />
+
+                                <button
+                                    type="button"
+                                    disabled={isSavingNote || !noteText.trim()}
+                                    onClick={handleAddNote}
+                                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    <Send size={16}/>
+                                </button>
+                            </div>
+                        </div>
+                    </PanelBlock>
+
+                    <PanelBlock title="Dados CRM">
+                        <div className="space-y-3 rounded-2xl border border-slate-200 p-4 text-sm">
+                            <CrmDataRow icon={<Bot size={16}/>} label="Origem:" value={conversation.origin}/>
+                            <CrmDataRow icon={<Filter size={16}/>} label="Campanha:" value={conversation.campaign}/>
+                            <CrmDataRow icon={<Clock size={16}/>} label="Último contato:" value={conversation.lastContact}/>
+                            <CrmDataRow icon={<UserRound size={16}/>} label="Último responsável:" value={conversation.responsible}/>
+                        </div>
+                    </PanelBlock>
+                </>
+            ) : (
+                <CustomerPanelBodySkeleton />
+            )}
         </aside>
     );
 }
@@ -952,7 +995,7 @@ function InboxAccessState({
                         type="button"
                         disabled={disabled}
                         onClick={onAction}
-                        className="mt-6 h-11 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="mt-6 h-11 rounded-xl cursor-pointer bg-brand px-5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                         {actionLabel}
                     </button>
@@ -1059,6 +1102,17 @@ function ChatPanelSkeleton() {
     );
 }
 
+function ChatMessagesSkeleton() {
+    return (
+        <div className="space-y-6">
+            <Skeleton className="h-20 w-[min(72%,520px)] rounded-2xl" />
+            <Skeleton className="ml-auto h-24 w-[min(72%,520px)] rounded-2xl" />
+            <Skeleton className="h-16 w-[min(62%,460px)] rounded-2xl" />
+            <Skeleton className="ml-auto h-20 w-[min(68%,500px)] rounded-2xl" />
+        </div>
+    );
+}
+
 function CustomerPanelSkeleton() {
     return (
         <aside
@@ -1081,6 +1135,14 @@ function CustomerPanelSkeleton() {
                 <Skeleton className="h-5 w-5 rounded-lg" />
             </div>
 
+            <CustomerPanelBodySkeleton />
+        </aside>
+    );
+}
+
+function CustomerPanelBodySkeleton() {
+    return (
+        <>
             <div className="mb-4 rounded-2xl border border-slate-200 p-4">
                 <div className="flex min-w-0 items-center gap-3">
                     <Skeleton className="h-11 w-11 rounded-full" />
@@ -1124,7 +1186,7 @@ function CustomerPanelSkeleton() {
                     <Skeleton className="h-4 w-full rounded-lg" />
                 </div>
             </div>
-        </aside>
+        </>
     );
 }
 
