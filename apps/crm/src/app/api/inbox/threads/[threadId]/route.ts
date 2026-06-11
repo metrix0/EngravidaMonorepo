@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { supabase } from "@engravida/lib/supabase/client";
+import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 import type {
     ClientNote,
     InboxChannel,
@@ -16,6 +17,15 @@ export async function GET(
     { params }: { params: Promise<{ threadId: string }> }
 ) {
     const { threadId } = await params;
+
+    const { supabase, attendant } = await getCurrentAttendantFromRequest();
+
+    if (!attendant || !attendant.is_online) {
+        return NextResponse.json(
+            { ok: false, error: "Not allowed" },
+            { status: 403 }
+        );
+    }
 
     const { data: thread, error: threadError } = await supabase
         .from("thread")
@@ -62,6 +72,7 @@ export async function GET(
             )
         `)
         .eq("id", threadId)
+        .eq("assigned_attendant_id", attendant.id)
         .single();
 
     if (threadError) {
@@ -88,7 +99,8 @@ export async function GET(
     await supabase
         .from("thread")
         .update({ unread_count: 0 })
-        .eq("id", threadId);
+        .eq("id", threadId)
+        .eq("assigned_attendant_id", attendant.id);
 
     const response: InboxThreadDetailResponse = {
         item: {
@@ -107,6 +119,15 @@ export async function PATCH(
 ) {
     const { threadId } = await params;
     const body = await request.json();
+
+    const { supabase, attendant } = await getCurrentAttendantFromRequest();
+
+    if (!attendant || !attendant.is_online) {
+        return NextResponse.json(
+            { ok: false, error: "Not allowed" },
+            { status: 403 }
+        );
+    }
 
     if (body.status) {
         const status = normalizeStatus(body.status);

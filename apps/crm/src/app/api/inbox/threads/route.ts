@@ -7,6 +7,7 @@ import type {
     InboxThreadListItem,
     InboxThreadsResponse,
 } from "@/types/inbox";
+import {getCurrentAttendantFromRequest} from "@/lib/attendants/getCurrentAttendantFromRequest";
 
 const PAGE_SIZE_DEFAULT = 10;
 const MAX_FETCH = 5000;
@@ -22,6 +23,26 @@ export async function GET(request: Request) {
 
     const status = normalizeStatus(searchParams.get("status"));
     const search = searchParams.get("search")?.trim().toLowerCase() ?? "";
+
+    const { attendant } = await getCurrentAttendantFromRequest();
+
+    if (!attendant) {
+        return NextResponse.json({
+            items: [],
+            total: 0,
+            page,
+            page_size: pageSize,
+        });
+    }
+
+    if (!attendant.is_online) {
+        return NextResponse.json({
+            items: [],
+            total: 0,
+            page,
+            page_size: pageSize,
+        });
+    }
 
     let query = supabase
         .from("thread")
@@ -67,6 +88,7 @@ export async function GET(request: Request) {
             )
         `)
         .order("last_message_at", { ascending: false, nullsFirst: false })
+        .eq("assigned_attendant_id", attendant.id)
         .limit(MAX_FETCH);
 
     if (status) {
@@ -117,6 +139,7 @@ export async function GET(request: Request) {
     return NextResponse.json(response);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapThreadRow(row: any): InboxThreadListItem {
     const client = row.clients;
     const attendant = row.attendants;

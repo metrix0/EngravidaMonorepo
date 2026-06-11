@@ -1,6 +1,4 @@
-import { randomUUID } from "crypto";
-
-import { supabase } from "index";
+import { supabase } from "../";
 
 type InboxChannel = "WhatsApp" | "Instagram" | "Facebook";
 
@@ -204,7 +202,7 @@ async function createQueuedThread({
     const { data, error } = await supabase
         .from("thread")
         .insert({
-            id: randomUUID(),
+            id: globalThis.crypto.randomUUID(),
             client_id: clientId,
             latest_conversation_id: null,
             status: "open",
