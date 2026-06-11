@@ -6,6 +6,7 @@ import { supabase } from "@engravida/lib";
 import { parseBlipMessage } from "@/lib/importers/blip/parseBlipMessage";
 import { createClientFromParsedMessage } from "@/lib/clients/createClient";
 import { createAttendantFromParsedMessage } from "@/lib/attendants/createAttendant";
+import { queueThreadForMessage } from "@engravida/lib/inbox/queueThreadForMessage";
 
 type ThreadRow = {
     id: string;
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
 
         await createAttendantFromParsedMessage(parsedMessage);
 
-        const thread = await getOrCreateThreadForClient({
+        const thread = await queueThreadForMessage({
             clientId: client.id,
             source: "blip",
             channel: "WhatsApp",
@@ -106,78 +107,7 @@ export async function POST(request: Request) {
     }
 }
 
-async function getOrCreateThreadForClient({
-                                              clientId,
-                                              source,
-                                              channel,
-                                          }: {
-    clientId: string;
-    source: string;
-    channel: "WhatsApp" | "Instagram" | "Facebook";
-}): Promise<ThreadRow> {
-    const { data: existingThread, error: existingError } = await supabase
-        .from("thread")
-        .select("id, client_id, latest_conversation_id")
-        .eq("client_id", clientId)
-        .maybeSingle();
 
-    if (existingError) {
-        throw existingError;
-    }
-
-    if (existingThread) {
-        const { data, error } = await supabase
-            .from("thread")
-            .update({
-                source,
-                channel,
-                updated_at: new Date().toISOString(),
-            })
-            .eq("id", existingThread.id)
-            .select("id, client_id, latest_conversation_id")
-            .single();
-
-        if (error) {
-            throw error;
-        }
-
-        return data;
-    }
-
-    const { data, error } = await supabase
-        .from("thread")
-        .insert({
-            id: randomUUID(),
-            client_id: clientId,
-            latest_conversation_id: null,
-            status: "open",
-            channel,
-            source,
-            unread_count: 0,
-        })
-        .select("id, client_id, latest_conversation_id")
-        .single();
-
-    if (!error) {
-        return data;
-    }
-
-    if (error.code !== "23505") {
-        throw error;
-    }
-
-    const { data: retryThread, error: retryError } = await supabase
-        .from("thread")
-        .select("id, client_id, latest_conversation_id")
-        .eq("client_id", clientId)
-        .single();
-
-    if (retryError) {
-        throw retryError;
-    }
-
-    return retryThread;
-}
 
 async function getNextSequenceIndex(threadId: string) {
     const { data, error } = await supabase

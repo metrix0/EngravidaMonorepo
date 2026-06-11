@@ -13,6 +13,7 @@ export type CurrentAttendant = {
 
 export type CurrentAttendantResponse = {
     ok: boolean;
+    debug?: unknown;
     user: {
         id: string;
         email: string | null;
@@ -21,8 +22,13 @@ export type CurrentAttendantResponse = {
 };
 
 export async function fetchCurrentAttendant() {
-    const response = await fetch("/api/current-attendant");
+    const response = await fetch("/api/current-attendant", {
+        credentials: "include",
+    });
+
     const json = await response.json();
+
+    console.log("[currentAttendantApi] fetchCurrentAttendant response", json);
 
     if (!response.ok) {
         throw new Error(json.error ?? "Failed to load current attendant");
@@ -34,9 +40,12 @@ export async function fetchCurrentAttendant() {
 export async function setCurrentAttendantOnline() {
     const response = await fetch("/api/current-attendant/online", {
         method: "POST",
+        credentials: "include",
     });
 
     const json = await response.json();
+
+    console.log("[currentAttendantApi] setCurrentAttendantOnline response", json);
 
     if (!response.ok) {
         throw new Error(json.error ?? "Failed to set attendant online");
@@ -51,9 +60,12 @@ export async function setCurrentAttendantOnline() {
 export async function setCurrentAttendantOffline() {
     const response = await fetch("/api/current-attendant/offline", {
         method: "POST",
+        credentials: "include",
     });
 
     const json = await response.json();
+
+    console.log("[currentAttendantApi] setCurrentAttendantOffline response", json);
 
     if (!response.ok) {
         throw new Error(json.error ?? "Failed to set attendant offline");

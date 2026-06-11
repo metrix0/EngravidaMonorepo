@@ -1,23 +1,21 @@
 import { NextResponse } from "next/server";
-
-import { supabase } from "@engravida/lib";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
 export async function POST() {
+    const supabase = await createRouteSupabaseClient();
+
     const {
         data: { user },
         error: userError,
     } = await supabase.auth.getUser();
 
-    if (userError) {
+    if (userError || !user) {
         return NextResponse.json(
-            { ok: false, error: userError.message },
-            { status: 500 }
-        );
-    }
-
-    if (!user) {
-        return NextResponse.json(
-            { ok: false, error: "Not authenticated" },
+            {
+                ok: false,
+                error: userError?.message ?? "Not authenticated",
+            },
             { status: 401 }
         );
     }
@@ -61,4 +59,25 @@ export async function POST() {
         ok: true,
         attendant,
     });
+}
+
+async function createRouteSupabaseClient() {
+    const cookieStore = await cookies();
+
+    return createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+            cookies: {
+                getAll() {
+                    return cookieStore.getAll();
+                },
+                setAll(cookiesToSet) {
+                    cookiesToSet.forEach(({ name, value, options }) => {
+                        cookieStore.set(name, value, options);
+                    });
+                },
+            },
+        }
+    );
 }

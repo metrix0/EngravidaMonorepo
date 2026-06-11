@@ -31,6 +31,7 @@ import type {
     DateRange,
 } from "@engravida/components/ui/CalendarButton";
 import {InitialsAvatar} from "@engravida/components/conversations/InitialsAvatar";
+import {Modal} from "@engravida/components/ui/Modal";
 
 type Pipeline = {
     id: string;
@@ -98,7 +99,6 @@ export default function PipelinePage() {
     });
 
     const [addClientModalOpen, setAddClientModalOpen] = useState(false);
-    const [addClientModalClosing, setAddClientModalClosing] = useState(false);
     const [availableClients, setAvailableClients] = useState<AvailableClient[]>([]);
     const [availableStages, setAvailableStages] = useState<PipelineStage[]>([]);
     const [availableClientsLoading, setAvailableClientsLoading] = useState(false);
@@ -194,21 +194,18 @@ export default function PipelinePage() {
         setAddingManyClients(false);
         closeAddClientModal();
     }
-    
-    function closeAddClientModal() {
-        setAddClientModalClosing(true);
 
-        window.setTimeout(() => {
-            setAddClientModalOpen(false);
-            setAddClientModalClosing(false);
-            setClientSearch("");
-            clearSelectedClients();
-            setAvailableClientsPage(1);
-        }, 180);
+    function closeAddClientModal() {
+        setAddClientModalOpen(false);
+    }
+
+    function resetAddClientModal() {
+        setClientSearch("");
+        clearSelectedClients();
+        setAvailableClientsPage(1);
     }
 
     async function openAddClientModal() {
-        setAddClientModalClosing(false);
         setAddClientModalOpen(true);
         setAvailableClientsLoading(true);
 
@@ -648,27 +645,26 @@ export default function PipelinePage() {
                     </div>
                 </section>
             </section>
-            {addClientModalOpen && (
-                <AddClientToPipelineModal
-                    isClosing={addClientModalClosing}
-                    clients={filteredAvailableClients}
-                    stageById={availableStageById}
-                    selectedPipelineStageIds={visibleStageIds}
-                    selectedClientIds={selectedClientIds}
-                    currentPage={availableClientsPage}
-                    onPageChange={setAvailableClientsPage}
-                    search={clientSearch}
-                    setSearch={setClientSearch}
-                    loading={availableClientsLoading}
-                    addingClientId={addingClientId}
-                    addingManyClients={addingManyClients}
-                    firstStageName={firstStageInSelectedPipeline?.name ?? null}
-                    onClose={closeAddClientModal}
-                    onAddClient={addClientToPipeline}
-                    onToggleClient={toggleSelectedClient}
-                    onAddSelectedClients={addSelectedClientsToPipeline}
-                />
-            )}
+            <AddClientToPipelineModal
+                open={addClientModalOpen}
+                clients={filteredAvailableClients}
+                stageById={availableStageById}
+                selectedPipelineStageIds={visibleStageIds}
+                selectedClientIds={selectedClientIds}
+                currentPage={availableClientsPage}
+                onPageChange={setAvailableClientsPage}
+                search={clientSearch}
+                setSearch={setClientSearch}
+                loading={availableClientsLoading}
+                addingClientId={addingClientId}
+                addingManyClients={addingManyClients}
+                firstStageName={firstStageInSelectedPipeline?.name ?? null}
+                onClose={closeAddClientModal}
+                onExitComplete={resetAddClientModal}
+                onAddClient={addClientToPipeline}
+                onToggleClient={toggleSelectedClient}
+                onAddSelectedClients={addSelectedClientsToPipeline}
+            />
         </main>
     );
 }
@@ -805,7 +801,7 @@ function normalize(value: string) {
 }
 
 function AddClientToPipelineModal({
-                                      isClosing,
+                                      open,
                                       clients,
                                       stageById,
                                       selectedPipelineStageIds,
@@ -819,11 +815,12 @@ function AddClientToPipelineModal({
                                       addingManyClients,
                                       firstStageName,
                                       onClose,
+                                      onExitComplete,
                                       onAddClient,
                                       onToggleClient,
                                       onAddSelectedClients,
                                   }: {
-    isClosing: boolean;
+    open: boolean;
     clients: AvailableClient[];
     stageById: Map<string, PipelineStage>;
     selectedPipelineStageIds: Set<string>;
@@ -837,6 +834,7 @@ function AddClientToPipelineModal({
     addingManyClients: boolean;
     firstStageName: string | null;
     onClose: () => void;
+    onExitComplete: () => void;
     onAddClient: (client: AvailableClient) => void;
     onToggleClient: (clientId: string) => void;
     onAddSelectedClients: () => void;
@@ -861,176 +859,159 @@ function AddClientToPipelineModal({
     const gridTemplateColumns = "44px minmax(0, 1fr) 150px 140px 85px 120px";
 
     return (
-        <div
-            className={[
-                "fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-6 py-8",
-                isClosing ? "animate-fade-out" : "animate-fade-in",
-            ].join(" ")}
-        ><div
-            className={[
-                "flex flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-2xl",
-                isClosing ? "animate-modal-pop-out" : "animate-modal-pop",
-            ].join(" ")}
-            style={{
-                    width: 920,
-                    maxWidth: "calc(100vw - 48px)",
-                    height: "82vh",
-                    maxHeight: "82vh",
-                }}
+        <Modal
+            open={open}
+            onClose={onClose}
+            onExitComplete={onExitComplete}
+            width={920}
+            maxWidth="calc(100vw - 48px)"
+            height="82vh"
+            maxHeight="82vh"
+        >
+            <div className="flex shrink-0 items-start justify-between border-border px-6 pt-5 pb-2 pr-16">
+                <div>
+                    <h2 className="text-2xl font-bold text-text">
+                        Adicionar cliente
+                    </h2>
+
+                    <p className="mt-1 text-sm text-muted">
+                        Selecione clientes para adicionar em{" "}
+                        <span className="font-bold text-text">
+                            {firstStageName ?? "primeira etapa"}
+                        </span>
+                        .
+                    </p>
+                </div>
+            </div>
+
+            <div className="shrink-0 border-b border-border px-6 py-4">
+                <div className="flex h-11 items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm">
+                    <Search size={17} className="shrink-0 text-muted" />
+
+                    <input
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder="Buscar por nome, telefone ou email..."
+                        className="w-full bg-transparent text-sm text-text outline-none placeholder:text-slate-400"
+                    />
+                </div>
+            </div>
+
+            <div
+                className="grid shrink-0 items-center border-b border-border bg-slate-50 px-4 py-3 text-xs font-bold tracking-wide text-muted"
+                style={{ gridTemplateColumns }}
             >
-                <div className="flex shrink-0 items-start justify-between border-border px-6 pt-5 pb-2">
+                <div />
+                <div>Cliente</div>
+                <div>Origem</div>
+                <div>Estágio atual</div>
+                <div className="whitespace-nowrap">Último contato</div>
+                <div className="text-center">Ação</div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+                {loading ? (
+                    <div className="space-y-3 p-6">
+                        <Skeleton className="h-16 rounded-xl" />
+                        <Skeleton className="h-16 rounded-xl" />
+                        <Skeleton className="h-16 rounded-xl" />
+                    </div>
+                ) : clients.length === 0 ? (
+                    <div className="flex h-full items-center justify-center p-6">
+                        <div className="flex h-52 w-full items-center justify-center rounded-xl border border-dashed border-border bg-slate-50 text-sm font-medium text-muted">
+                            Nenhum cliente encontrado.
+                        </div>
+                    </div>
+                ) : (
                     <div>
-                        <h2 className="text-2xl font-bold text-text">
-                            Adicionar cliente
-                        </h2>
+                        {paginatedClients.map((client) => {
+                            const currentStage = client.pipeline_stage_id
+                                ? stageById.get(client.pipeline_stage_id)
+                                : null;
 
-                        <p className="mt-1 text-sm text-muted">
-                            Selecione clientes para adicionar em{" "}
-                            <span className="font-bold text-text">
-                                {firstStageName ?? "primeira etapa"}
-                            </span>
-                            .
-                        </p>
-                    </div>
-
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="flex h-9 w-9 cursor-pointer shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-slate-100 hover:text-text"
-                    >
-                        <X size={18}/>
-                    </button>
-                </div>
-
-                <div className="shrink-0 border-b border-border px-6 py-4">
-                    <div
-                        className="flex h-11 items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm">
-                        <Search size={17} className="shrink-0 text-muted"/>
-
-                        <input
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Buscar por nome, telefone ou email..."
-                            className="w-full bg-transparent text-sm text-text outline-none placeholder:text-slate-400"
-                        />
-                    </div>
-                </div>
-
-                <div
-                    className="grid shrink-0 items-center border-b border-border bg-slate-50 px-4 py-3 text-xs font-bold tracking-wide text-muted"
-                    style={{gridTemplateColumns}}
-                >
-                    <div/>
-                    <div>Cliente</div>
-                    <div>Origem</div>
-                    <div>Estágio atual</div>
-                    <div className="whitespace-nowrap">Último contato</div>
-                    <div className="text-center">Ação</div>
-                </div>
-
-                <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-                    {loading ? (
-                        <div className="space-y-3 p-6">
-                            <Skeleton className="h-16 rounded-xl"/>
-                            <Skeleton className="h-16 rounded-xl"/>
-                            <Skeleton className="h-16 rounded-xl"/>
-                        </div>
-                    ) : clients.length === 0 ? (
-                        <div className="flex h-full items-center justify-center p-6">
-                            <div
-                                className="flex h-52 w-full items-center justify-center rounded-xl border border-dashed border-border bg-slate-50 text-sm font-medium text-muted">
-                                Nenhum cliente encontrado.
-                            </div>
-                        </div>
-                    ) : (
-                        <div>
-                            {paginatedClients.map((client) => {
-                                const currentStage = client.pipeline_stage_id
-                                    ? stageById.get(client.pipeline_stage_id)
-                                    : null;
-
-                                const alreadyInCurrentPipeline = selectedPipelineStageIds.has(
+                            const alreadyInCurrentPipeline =
+                                selectedPipelineStageIds.has(
                                     client.pipeline_stage_id ?? ""
                                 );
 
-                                return (
-                                    <SelectableClientRow
-                                        key={client.id}
-                                        client={client}
-                                        currentStageName={currentStage?.name ?? "Sem pipeline"}
-                                        checked={selectedIdsSet.has(client.id)}
-                                        alreadyInCurrentPipeline={alreadyInCurrentPipeline}
-                                        addingClientId={addingClientId}
-                                        addingManyClients={addingManyClients}
-                                        onToggleClient={onToggleClient}
-                                        onAddClient={onAddClient}
-                                    />
-                                );
-                            })}
-                        </div>
+                            return (
+                                <SelectableClientRow
+                                    key={client.id}
+                                    client={client}
+                                    currentStageName={
+                                        currentStage?.name ?? "Sem pipeline"
+                                    }
+                                    checked={selectedIdsSet.has(client.id)}
+                                    alreadyInCurrentPipeline={
+                                        alreadyInCurrentPipeline
+                                    }
+                                    addingClientId={addingClientId}
+                                    addingManyClients={addingManyClients}
+                                    onToggleClient={onToggleClient}
+                                    onAddClient={onAddClient}
+                                />
+                            );
+                        })}
+                    </div>
+                )}
+
+                <div className="flex justify-center pt-12 pb-8">
+                    {totalPages > 1 && (
+                        <Pagination
+                            totalPages={totalPages}
+                            currentPage={safeCurrentPage}
+                            onPageChange={onPageChange}
+                        />
                     )}
-                    <div className={"justify-center flex pt-12 pb-8"}>
-                        {totalPages > 1 && (
-                            <Pagination
-                                totalPages={totalPages}
-                                currentPage={safeCurrentPage}
-                                onPageChange={onPageChange}
-                            />
-                        )}
-                    </div>
-
-
-                </div>
-
-
-                <div
-                    className="flex shrink-0 items-center justify-between gap-4 border-t border-border bg-white px-6 py-4">
-                    <div className="min-w-[220px]">
-                        <p className="text-sm text-muted">
-                            {clients.length} cliente{clients.length === 1 ? "" : "s"}{" "}
-                            encontrado{clients.length === 1 ? "" : "s"}
-
-                            {selectedCount > 0 && (
-                                <span className="font-semibold text-text">
-                    {" "}
-                                    • {selectedCount} selecionado
-                                    {selectedCount === 1 ? "" : "s"}
-                </span>
-                            )}
-                        </p>
-                    </div>
-
-
-                    <div className="flex min-w-[290px] items-center justify-end gap-3">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="h-10 cursor-pointer rounded-xl border border-border bg-white px-5 text-sm font-semibold text-text shadow-sm transition hover:bg-slate-50"
-                        >
-                            Fechar
-                        </button>
-
-                        <button
-                            type="button"
-                            disabled={selectedCount === 0 || addingManyClients}
-                            onClick={onAddSelectedClients}
-                            className={[
-                                "h-10 rounded-xl px-5 text-sm font-semibold shadow-sm transition",
-                                selectedCount === 0 || addingManyClients
-                                    ? "cursor-not-allowed bg-slate-100 text-slate-400"
-                                    : "bg-brand text-white hover:opacity-90 cursor-pointer",
-                            ].join(" ")}
-                        >
-                            {addingManyClients
-                                ? "Adicionando..."
-                                : `Adicionar selecionados${
-                                    selectedCount > 0 ? ` (${selectedCount})` : ""
-                                }`}
-                        </button>
-                    </div>
                 </div>
             </div>
-        </div>
+
+            <div className="flex shrink-0 items-center justify-between gap-4 border-t border-border bg-white px-6 py-4">
+                <div className="min-w-[220px]">
+                    <p className="text-sm text-muted">
+                        {clients.length} cliente
+                        {clients.length === 1 ? "" : "s"} encontrado
+                        {clients.length === 1 ? "" : "s"}
+
+                        {selectedCount > 0 && (
+                            <span className="font-semibold text-text">
+                                {" "}
+                                • {selectedCount} selecionado
+                                {selectedCount === 1 ? "" : "s"}
+                            </span>
+                        )}
+                    </p>
+                </div>
+
+                <div className="flex min-w-[290px] items-center justify-end gap-3">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="h-10 cursor-pointer rounded-xl border border-border bg-white px-5 text-sm font-semibold text-text shadow-sm transition hover:bg-slate-50"
+                    >
+                        Fechar
+                    </button>
+
+                    <button
+                        type="button"
+                        disabled={selectedCount === 0 || addingManyClients}
+                        onClick={onAddSelectedClients}
+                        className={[
+                            "h-10 rounded-xl px-5 text-sm font-semibold shadow-sm transition",
+                            selectedCount === 0 || addingManyClients
+                                ? "cursor-not-allowed bg-slate-100 text-slate-400"
+                                : "bg-brand text-white hover:opacity-90 cursor-pointer",
+                        ].join(" ")}
+                    >
+                        {addingManyClients
+                            ? "Adicionando..."
+                            : `Adicionar selecionados${
+                                selectedCount > 0 ? ` (${selectedCount})` : ""
+                            }`}
+                    </button>
+                </div>
+            </div>
+        </Modal>
     );
 }
 

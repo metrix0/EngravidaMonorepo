@@ -11,6 +11,7 @@ import {
     Filter,
     Funnel,
     MapPin,
+    MessagesSquare,
     MoreVertical,
     Paperclip,
     Search,
@@ -33,6 +34,11 @@ import {
     updateInboxThread,
 } from "@/lib/inbox/inboxApi";
 import {useInboxRealtime} from "@/lib/inbox/useInboxRealtime";
+import {
+    fetchCurrentAttendant,
+    setCurrentAttendantOnline,
+    type CurrentAttendant,
+} from "@/lib/attendants/currentAttendantApi";
 import type {
     InboxChannel,
     InboxStatus,
@@ -60,7 +66,25 @@ export default function InboxPage() {
     const [isLoadingThreads, setIsLoadingThreads] = useState(true);
     const [isLoadingSelectedThread, setIsLoadingSelectedThread] = useState(false);
 
+    const [currentAttendant, setCurrentAttendant] =
+        useState<CurrentAttendant | null>(null);
+    const [isLoadingCurrentAttendant, setIsLoadingCurrentAttendant] = useState(true);
+    const [isSettingOnline, setIsSettingOnline] = useState(false);
+
     const totalPages = Math.max(1, Math.ceil(totalThreads / PAGE_SIZE));
+
+    const isNotLinkedToAttendant =
+        !isLoadingCurrentAttendant && !currentAttendant;
+
+    const isCurrentAttendantOffline =
+        !isLoadingCurrentAttendant &&
+        !!currentAttendant &&
+        !currentAttendant.is_online;
+
+    const canShowInbox =
+        !isLoadingCurrentAttendant &&
+        !!currentAttendant &&
+        currentAttendant.is_online;
 
     const loadThreads = useCallback(async () => {
         setIsLoadingThreads(true);
@@ -109,16 +133,52 @@ export default function InboxPage() {
     }, [selectedId]);
 
     useEffect(() => {
-        loadThreads();
-    }, [loadThreads]);
+        let isMounted = true;
+
+        async function loadCurrentAttendant() {
+            setIsLoadingCurrentAttendant(true);
+
+            try {
+                const response = await fetchCurrentAttendant();
+
+                if (!isMounted) return;
+
+                setCurrentAttendant(response.attendant);
+            } catch (error) {
+                console.error("[inbox] failed to load current attendant", error);
+
+                if (!isMounted) return;
+
+                setCurrentAttendant(null);
+            } finally {
+                if (!isMounted) return;
+
+                setIsLoadingCurrentAttendant(false);
+            }
+        }
+
+        loadCurrentAttendant();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
 
     useEffect(() => {
+        if (!canShowInbox) return;
+
+        loadThreads();
+    }, [canShowInbox, loadThreads]);
+
+    useEffect(() => {
+        if (!canShowInbox) return;
+
         loadSelectedThread();
-    }, [loadSelectedThread]);
+    }, [canShowInbox, loadSelectedThread]);
 
     useInboxRealtime({
-        selectedThreadId: selectedId,
-        selectedClientId: selectedThread?.client_id ?? null,
+        selectedThreadId: canShowInbox ? selectedId : null,
+        selectedClientId: canShowInbox ? selectedThread?.client_id ?? null : null,
         onThreadChange: loadThreads,
         onSelectedThreadChange: loadSelectedThread,
     });
@@ -141,6 +201,22 @@ export default function InboxPage() {
     function handleStatusChange(nextStatus: InboxStatus) {
         setStatus(nextStatus);
         setCurrentPage(1);
+    }
+
+    async function handleStayOnline() {
+        if (isSettingOnline) return;
+
+        setIsSettingOnline(true);
+
+        try {
+            const response = await setCurrentAttendantOnline();
+
+            setCurrentAttendant(response.attendant);
+        } catch (error) {
+            console.error("[inbox] failed to set attendant online", error);
+        } finally {
+            setIsSettingOnline(false);
+        }
     }
 
     async function handleSendMessage(text: string) {
@@ -177,8 +253,12 @@ export default function InboxPage() {
         await loadSelectedThread();
     }
 
-    const isOpeningPage = isLoadingThreads && threads.length === 0 && !selectedThread;
-    const isClientLoading = isLoadingSelectedThread || (!!selectedId && selectedThread?.id !== selectedId);
+    const isOpeningPage =
+        canShowInbox && isLoadingThreads && threads.length === 0 && !selectedThread;
+
+    const isClientLoading =
+        canShowInbox &&
+        (isLoadingSelectedThread || (!!selectedId && selectedThread?.id !== selectedId));
 
     return (
         <main className="flex h-screen w-screen overflow-hidden bg-white text-slate-900">
@@ -187,7 +267,26 @@ export default function InboxPage() {
             <section
                 className="grid h-screen min-w-0 flex-1 grid-cols-[minmax(270px,22vw)_minmax(420px,1fr)_minmax(285px,22vw)] gap-3 px-3 py-3"
             >
-                {isOpeningPage ? (
+                {isLoadingCurrentAttendant ? (
+                    <>
+                        <ConversationListSkeleton />
+                        <ChatPanelSkeleton />
+                        <CustomerPanelSkeleton />
+                    </>
+                ) : isNotLinkedToAttendant ? (
+                    <InboxAccessState
+                        title="Você não é atendente"
+                        description="Seu usuário ainda não está vinculado a um atendente do CRM."
+                    />
+                ) : isCurrentAttendantOffline ? (
+                    <InboxAccessState
+                        title="Você está offline"
+                        description="Fique online para receber e atender conversas no Inbox."
+                        actionLabel={isSettingOnline ? "Entrando..." : "Ficar online"}
+                        onAction={handleStayOnline}
+                        disabled={isSettingOnline}
+                    />
+                ) : isOpeningPage ? (
                     <>
                         <ConversationListSkeleton />
                         <ChatPanelSkeleton />
@@ -817,6 +916,49 @@ function CustomerPanel({
                 </div>
             </PanelBlock>
         </aside>
+    );
+}
+
+function InboxAccessState({
+                              title,
+                              description,
+                              actionLabel,
+                              onAction,
+                              disabled,
+                          }: {
+    title: string;
+    description: string;
+    actionLabel?: string;
+    onAction?: () => void;
+    disabled?: boolean;
+}) {
+    return (
+        <div className="col-span-3 flex h-full items-center justify-center">
+            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+                <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-brand">
+                    <MessagesSquare size={24}/>
+                </div>
+
+                <h1 className="text-xl font-bold text-slate-950">
+                    {title}
+                </h1>
+
+                <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                    {description}
+                </p>
+
+                {actionLabel && onAction && (
+                    <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={onAction}
+                        className="mt-6 h-11 rounded-xl bg-brand px-5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {actionLabel}
+                    </button>
+                )}
+            </div>
+        </div>
     );
 }
 

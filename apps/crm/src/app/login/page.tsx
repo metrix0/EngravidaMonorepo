@@ -145,7 +145,7 @@ export default function LoginPage() {
                                 </h1>
 
                                 <p className="mt-2 text-sm text-slate-500">
-                                    Defina uma senha para acessar o Engravida Insights.
+                                    Defina uma senha para acessar o Engravida Chat.
                                 </p>
                             </div>
 
@@ -202,7 +202,7 @@ export default function LoginPage() {
                     <form onSubmit={handleLogin}>
                         <div className="mb-8">
                             <h1 className="text-2xl font-bold text-slate-950">
-                                Engravida Insights
+                                Engravida Chat
                             </h1>
 
                             <p className="mt-2 text-sm text-slate-500">
