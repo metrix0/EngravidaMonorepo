@@ -78,17 +78,10 @@ export async function sendMetaEvents({
 
     const sentAt = new Date().toISOString();
 
-    const adEventIds = await createPendingMetaAdEvents({
-        events,
-        conversation_id: conversation_id ?? null,
-        schedule_id: schedule_id ?? null,
-        sentAt,
-    });
+    let adEventIds: string[] = [];
 
     try {
         if (!phone && !email) {
-            await updateAdEventsStatus(adEventIds, "failed");
-
             return {
                 ok: false,
                 skipped: true,
@@ -97,13 +90,19 @@ export async function sendMetaEvents({
         }
 
         if (!metaPixelId) {
-            await updateAdEventsStatus(adEventIds, "failed");
-            throw new Error("Missing META_PIXEL_ID");
+            return {
+                ok: false,
+                skipped: false,
+                reason: "Missing META_PIXEL_ID",
+            };
         }
 
         if (!metaAccessToken) {
-            await updateAdEventsStatus(adEventIds, "failed");
-            throw new Error("Missing META_ACCESS_TOKEN");
+            return {
+                ok: false,
+                skipped: false,
+                reason: "Missing META_ACCESS_TOKEN",
+            };
         }
 
         const normalizedPhone = phone ? normalizeBrazilPhone(phone) : null;
@@ -124,8 +123,6 @@ export async function sendMetaEvents({
         });
 
         if (Object.keys(userData).length === 0) {
-            await updateAdEventsStatus(adEventIds, "failed");
-
             return {
                 ok: false,
                 skipped: true,
@@ -140,8 +137,6 @@ export async function sendMetaEvents({
             hashedEmail,
             tracking,
         });
-
-        await updateAdEventsParameters(adEventIds, sentParameters);
 
         const payload = {
             data: events.map((event) => ({
@@ -172,6 +167,21 @@ export async function sendMetaEvents({
                 : {}),
         };
 
+        console.log("[sendMetaEvents] payload", {
+            conversation_id,
+            schedule_id,
+            pixel_id: metaPixelId,
+            events: payload.data.map((event) => ({
+                event_name: event.event_name,
+                event_time: event.event_time,
+                event_id: event.event_id,
+                action_source: event.action_source,
+                user_data_keys: Object.keys(event.user_data ?? {}),
+                custom_data: event.custom_data,
+            })),
+            has_test_event_code: Boolean(metaTestEventCode),
+        });
+
         const response = await fetch(
             `https://graph.facebook.com/v20.0/${metaPixelId}/events?access_token=${metaAccessToken}`,
             {
@@ -186,8 +196,6 @@ export async function sendMetaEvents({
         const json = await response.json();
 
         if (!response.ok) {
-            await updateAdEventsStatus(adEventIds, "failed");
-
             console.error("[sendMetaEvents] Meta CAPI error", {
                 status: response.status,
                 response: json,
@@ -202,6 +210,21 @@ export async function sendMetaEvents({
             };
         }
 
+        adEventIds = await createPendingMetaAdEvents({
+            events,
+            conversation_id: conversation_id ?? null,
+            schedule_id: schedule_id ?? null,
+            sentAt,
+        });
+
+        console.log("[sendMetaEvents] sent ad_events created", {
+            conversation_id,
+            schedule_id,
+            ad_event_ids: adEventIds,
+        });
+
+        await updateAdEventsParameters(adEventIds, sentParameters);
+
         await updateAdEventsStatus(adEventIds, "sent");
 
         return {
@@ -211,8 +234,6 @@ export async function sendMetaEvents({
             response: json,
         };
     } catch (error) {
-        await updateAdEventsStatus(adEventIds, "failed");
-
         console.error("[sendMetaEvents] failed", error);
 
         return {

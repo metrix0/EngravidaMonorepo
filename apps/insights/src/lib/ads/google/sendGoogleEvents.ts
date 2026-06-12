@@ -117,6 +117,8 @@ export async function sendGoogleEvents({
 
     const sentAt = new Date().toISOString();
 
+    let adEventIds: string[] = [];
+
     try {
         validateGoogleEnv();
 
@@ -141,19 +143,6 @@ export async function sendGoogleEvents({
             };
         }
 
-        const adEventIds = await createPendingGoogleAdEvents({
-            events,
-            conversation_id: conversation_id ?? null,
-            schedule_id: schedule_id ?? null,
-            sentAt,
-        });
-
-        console.log("[sendGoogleEvents] pending ad_events created", {
-            conversation_id,
-            schedule_id,
-            ad_event_ids: adEventIds,
-        });
-
         console.log("[sendGoogleEvents] client tracking loaded", {
             conversation_id,
             schedule_id,
@@ -168,15 +157,6 @@ export async function sendGoogleEvents({
             phone,
             email,
             name,
-        });
-
-        await updateAdEventsParameters(adEventIds, sentParameters);
-
-        console.log("[sendGoogleEvents] ad_event parameters saved", {
-            conversation_id,
-            schedule_id,
-            ad_event_ids: adEventIds,
-            parameters: sentParameters,
         });
 
         const accessToken = await getGoogleAccessToken();
@@ -306,8 +286,6 @@ export async function sendGoogleEvents({
             }
 
             if (!response.ok) {
-                await updateAdEventsStatus(adEventIds, "failed");
-
                 console.error(`[sendGoogleEvents][${account.key}] API error`, {
                     account_label: account.label,
                     customer_id: account.customerId,
@@ -316,11 +294,19 @@ export async function sendGoogleEvents({
                     response: json,
                 });
 
-                throw new Error(
-                    `Google Ads API error (${account.label}): ${JSON.stringify(
-                        json
-                    )}`
-                );
+                results.push({
+                    account: account.key,
+                    label: account.label,
+                    customer_id: account.customerId,
+                    ok: false,
+                    skipped: false,
+                    reason: "Google Ads API error",
+                    status: response.status,
+                    payload,
+                    response: json,
+                });
+
+                continue;
             }
 
             results.push({
@@ -344,8 +330,6 @@ export async function sendGoogleEvents({
         const successfulUploads = results.filter((result) => result.ok);
 
         if (successfulUploads.length === 0) {
-            await updateAdEventsStatus(adEventIds, "failed");
-
             console.log("[sendGoogleEvents] all accounts skipped/failed", {
                 conversation_id,
                 schedule_id,
@@ -359,6 +343,28 @@ export async function sendGoogleEvents({
                 results,
             };
         }
+
+        adEventIds = await createPendingGoogleAdEvents({
+            events,
+            conversation_id: conversation_id ?? null,
+            schedule_id: schedule_id ?? null,
+            sentAt,
+        });
+
+        console.log("[sendGoogleEvents] sent ad_events created", {
+            conversation_id,
+            schedule_id,
+            ad_event_ids: adEventIds,
+        });
+
+        await updateAdEventsParameters(adEventIds, sentParameters);
+
+        console.log("[sendGoogleEvents] ad_event parameters saved", {
+            conversation_id,
+            schedule_id,
+            ad_event_ids: adEventIds,
+            parameters: sentParameters,
+        });
 
         await updateAdEventsStatus(adEventIds, "sent");
 
@@ -383,7 +389,12 @@ export async function sendGoogleEvents({
             error,
         });
 
-        throw error;
+        return {
+            ok: false,
+            skipped: false,
+            reason: "Google send failed",
+            error: error instanceof Error ? error.message : String(error),
+        };
     }
 }
 

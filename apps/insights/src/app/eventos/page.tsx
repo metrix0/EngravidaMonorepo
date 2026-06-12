@@ -7,7 +7,7 @@ import {
     BarChart3,
     Calendar,
     HelpCircle,
-    MessageCircleMore,
+    MessageCircleMore, Monitor,
     Send,
     UsersRound,
 } from "lucide-react";
@@ -753,18 +753,22 @@ function RecentEventsCard({
                             <EventStatusBadge status={event.status}/>
                         </div>
 
-                        <button
-                            type="button"
-                            disabled={!event.conversation_id}
-                            onClick={() => {
-                                if (!event.conversation_id) return;
-
-                                onSelectConversation(event.conversation_id);
-                            }}
-                            className="flex w-full cursor-pointer items-center justify-center font-bold text-slate-500 transition-colors hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                            <MessageCircleMore size={16}/>
-                        </button>
+                        {event.conversation_id ? (
+                            <button
+                                type="button"
+                                onClick={() => onSelectConversation(event.conversation_id!)}
+                                className="flex w-full cursor-pointer items-center justify-center font-bold text-slate-500 transition-colors hover:text-slate-700"
+                            >
+                                <MessageCircleMore size={16} />
+                            </button>
+                        ) : (
+                            <div
+                                title="Evento Clinisys"
+                                className="flex w-full items-center justify-center text-slate-500"
+                            >
+                                <Monitor size={16} />
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>

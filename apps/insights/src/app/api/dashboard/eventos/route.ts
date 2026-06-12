@@ -139,7 +139,7 @@ async function getEvents({
             status,
             event_date,
             parameters,
-            conversations!inner (
+            conversations (
                 id,
                 unit_id,
                 service_id,
@@ -229,12 +229,14 @@ function groupRecentEvents(events: any[]) {
     const grouped = new Map<string, any>();
 
     for (const event of events) {
-        const key = [
-            event.conversation_id,
-            event.event_type,
-            event.status,
-            event.event_date,
-        ].join("|");
+        const key = event.conversation_id
+            ? [
+                event.conversation_id,
+                event.event_type,
+                event.status,
+                event.event_date,
+            ].join("|")
+            : event.id;
 
         const eventParameters = Array.isArray(event.parameters)
             ? event.parameters
@@ -252,7 +254,7 @@ function groupRecentEvents(events: any[]) {
                 platform: event.platform,
                 platforms: [event.platform],
                 parameters: eventParameters,
-                client_name: event.conversations?.clients?.name ?? "Sem nome",
+                client_name: event.conversations?.clients?.name ?? "Clinisys",
                 phone: event.conversations?.clients?.phone ?? "",
             });
 
