@@ -10,6 +10,8 @@ import {
     getBigquerySchedules,
     type BigqueryScheduleRow,
 } from "@/lib/schedules/getBigquerySchedules";
+import { findOrCreateUnitByName } from "@/lib/units/findOrCreateUnitByName";
+
 
 type NormalizedSchedule = {
     source_hash: string;
@@ -32,8 +34,8 @@ type ClientForSchedule = {
     name: string | null;
     phone: string | null;
     email: string | null;
+    unit_id: string | null;
 };
-
 export async function syncBigquerySchedules({
                                                 daysBack = 60,
                                                 limit = 5000,
@@ -106,9 +108,33 @@ export async function syncBigquerySchedules({
 
         savedToSupabase += 1;
 
-        const eventTime = dateToIso(
-            schedule.created_in_source_at ?? schedule.scheduled_for
-        );
+        const eventTime = getScheduleEventTime(schedule.created_in_source_at);
+
+        if (!eventTime) {
+            console.warn("[syncBigquerySchedules] skipping ads event without usable event time", {
+                source_hash: schedule.source_hash,
+                created_in_source_at: schedule.created_in_source_at,
+                scheduled_for: schedule.scheduled_for,
+            });
+
+            results.push({
+                schedule_id: insertedSchedule.id,
+                client_id: client.id,
+                source_hash: schedule.source_hash,
+                meta: {
+                    ok: false,
+                    skipped: true,
+                    reason: "Missing usable created_in_source_at",
+                },
+                google: {
+                    ok: false,
+                    skipped: true,
+                    reason: "Missing usable created_in_source_at",
+                },
+            });
+
+            continue;
+        }
 
         const event: DerivedAdEvent = {
             type: "schedule",
@@ -253,12 +279,13 @@ async function getExistingScheduleHashes(hashes: string[]) {
 async function findOrCreateClientFromSchedule(
     schedule: NormalizedSchedule
 ): Promise<ClientForSchedule> {
+    const unit = await findOrCreateUnitByName(schedule.unit_name);
     const phoneOptions = buildPhoneSearchOptions(schedule.normalized_phone);
 
     if (phoneOptions.length > 0) {
         const { data: existingClient, error } = await supabase
             .from("clients")
-            .select("id, name, phone, email")
+            .select("id, name, phone, email, unit_id")
             .or(phoneOptions.map((phone) => `phone.eq.${phone}`).join(","))
             .maybeSingle();
 
@@ -273,18 +300,27 @@ async function findOrCreateClientFromSchedule(
                 updates.name = schedule.patient_name;
             }
 
-            if (!existingClient.phone && schedule.normalized_phone) {
-                updates.phone = schedule.normalized_phone;
+            if (!existingClient.unit_id && unit?.id) {
+                updates.unit_id = unit.id;
             }
 
             if (Object.keys(updates).length > 0) {
-                await supabase
+                const { error: updateError } = await supabase
                     .from("clients")
                     .update({
                         ...updates,
                         updated_at: new Date().toISOString(),
                     })
                     .eq("id", existingClient.id);
+
+                if (updateError) {
+                    throw updateError;
+                }
+
+                return {
+                    ...existingClient,
+                    ...updates,
+                } as ClientForSchedule;
             }
 
             return existingClient as ClientForSchedule;
@@ -298,10 +334,11 @@ async function findOrCreateClientFromSchedule(
         .insert({
             name: schedule.patient_name,
             phone: schedule.normalized_phone ?? schedule.phone,
+            unit_id: unit?.id ?? null,
             first_seen_at: now,
             last_interaction_at: now,
         })
-        .select("id, name, phone, email")
+        .select("id, name, phone, email, unit_id")
         .single();
 
     if (createError) {
@@ -402,8 +439,33 @@ function buildPhoneSearchOptions(normalizedPhone: string | null) {
     );
 }
 
-function dateToIso(date: string) {
-    return new Date(`${date}T12:00:00-03:00`).toISOString();
+function getScheduleEventTime(date: string | null) {
+    if (!date) return null;
+
+    const today = getTodayInSaoPaulo();
+
+    if (date === today) {
+        return new Date().toISOString();
+    }
+
+    // No real hour/min/sec available.
+    // Do not fake a timestamp for older date-only events.
+    return null;
+}
+
+function getTodayInSaoPaulo() {
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).formatToParts(new Date());
+
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    const day = parts.find((part) => part.type === "day")?.value;
+
+    return `${year}-${month}-${day}`;
 }
 
 function chunk<T>(items: T[], size: number) {
