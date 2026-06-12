@@ -250,7 +250,6 @@ export default function InboxPage() {
         await addClientNote({
             threadId: selectedId,
             text,
-            authorName: "Atendente",
         });
 
         await loadSelectedThread();

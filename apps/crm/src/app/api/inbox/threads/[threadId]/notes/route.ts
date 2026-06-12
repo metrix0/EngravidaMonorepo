@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { supabase } from "@engravida/lib/supabase/client";
 import type { ClientNote } from "@/types/inbox";
+import { getCurrentAttendantFromRequest } from "@/lib/attendants/getCurrentAttendantFromRequest";
 
 export async function POST(
     request: Request,
@@ -11,7 +11,6 @@ export async function POST(
     const body = await request.json();
 
     const text = String(body.text ?? "").trim();
-    const authorName = String(body.author_name ?? "Atendente").trim();
 
     if (!text) {
         return NextResponse.json(
@@ -20,18 +19,21 @@ export async function POST(
         );
     }
 
+    const { supabase, attendant } = await getCurrentAttendantFromRequest();
+
+    if (!attendant || !attendant.is_online) {
+        return NextResponse.json(
+            { ok: false, error: "Not allowed" },
+            { status: 403 }
+        );
+    }
+
     const { data: thread, error: threadError } = await supabase
         .from("thread")
-        .select(`
-            id,
-            client_id,
-            clients (
-                id,
-                notes
-            )
-        `)
+        .select("id, client_id")
         .eq("id", threadId)
-        .single();
+        .eq("assigned_attendant_id", attendant.id)
+        .maybeSingle();
 
     if (threadError) {
         return NextResponse.json(
@@ -40,14 +42,40 @@ export async function POST(
         );
     }
 
-    const client = thread.clients as any;
-    const currentNotes = Array.isArray(client?.notes)
+    if (!thread) {
+        return NextResponse.json(
+            { ok: false, error: "Thread not found" },
+            { status: 404 }
+        );
+    }
+
+    const { data: client, error: clientError } = await supabase
+        .from("clients")
+        .select("id, notes")
+        .eq("id", thread.client_id)
+        .maybeSingle();
+
+    if (clientError) {
+        return NextResponse.json(
+            { ok: false, error: clientError.message },
+            { status: 500 }
+        );
+    }
+
+    if (!client) {
+        return NextResponse.json(
+            { ok: false, error: "Client not found" },
+            { status: 404 }
+        );
+    }
+
+    const currentNotes = Array.isArray(client.notes)
         ? (client.notes as ClientNote[])
         : [];
 
     const note: ClientNote = {
         id: crypto.randomUUID(),
-        author_name: authorName,
+        author_name: attendant.name,
         text,
         created_at: new Date().toISOString(),
     };
@@ -57,7 +85,7 @@ export async function POST(
     const { error: updateError } = await supabase
         .from("clients")
         .update({ notes: nextNotes })
-        .eq("id", thread.client_id);
+        .eq("id", client.id);
 
     if (updateError) {
         return NextResponse.json(

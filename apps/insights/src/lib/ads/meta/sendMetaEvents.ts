@@ -8,8 +8,12 @@ type SendMetaEventsInput = {
     events: DerivedAdEvent[];
     phone: string | null;
     email?: string | null;
-    conversation_id: string;
-    conversation_ended_at: string;
+
+    conversation_id?: string | null;
+    conversation_ended_at?: string | null;
+
+    schedule_id?: string | null;
+    client_id?: string | null;
 };
 
 type ClientTracking = {
@@ -51,6 +55,8 @@ export async function sendMetaEvents({
                                          email,
                                          conversation_id,
                                          conversation_ended_at,
+                                         schedule_id,
+                                         client_id,
                                      }: SendMetaEventsInput) {
     if (events.length === 0) {
         return {
@@ -60,11 +66,22 @@ export async function sendMetaEvents({
         };
     }
 
+    const sourceId = conversation_id ?? schedule_id;
+
+    if (!sourceId) {
+        throw new Error("sendMetaEvents requires conversation_id or schedule_id");
+    }
+
+    if (schedule_id && !client_id) {
+        throw new Error("sendMetaEvents with schedule_id requires client_id");
+    }
+
     const sentAt = new Date().toISOString();
 
     const adEventIds = await createPendingMetaAdEvents({
         events,
-        conversation_id,
+        conversation_id: conversation_id ?? null,
+        schedule_id: schedule_id ?? null,
         sentAt,
     });
 
@@ -95,7 +112,8 @@ export async function sendMetaEvents({
         const hashedEmail = email ? hashEmail(email) : null;
 
         const tracking = await getClientTracking({
-            conversationId: conversation_id,
+            conversationId: conversation_id ?? null,
+            clientId: client_id ?? null,
             normalizedPhone,
         });
 
@@ -128,8 +146,10 @@ export async function sendMetaEvents({
         const payload = {
             data: events.map((event) => ({
                 event_name: event.meta_event_name,
-                event_time: toUnixSeconds(conversation_ended_at),
-                event_id: `${conversation_id}:${event.type}`,
+                event_time: toUnixSeconds(
+                    event.occurred_at ?? conversation_ended_at ?? sentAt
+                ),
+                event_id: `${sourceId}:${event.type}`,
 
                 action_source: "chat",
 
@@ -137,7 +157,8 @@ export async function sendMetaEvents({
 
                 custom_data: {
                     internal_event: event.type,
-                    conversation_id,
+                    conversation_id: conversation_id ?? undefined,
+                    schedule_id: schedule_id ?? undefined,
                     confidence: event.confidence,
 
                     ...trackingCustomData,
@@ -166,7 +187,19 @@ export async function sendMetaEvents({
 
         if (!response.ok) {
             await updateAdEventsStatus(adEventIds, "failed");
-            throw new Error(`Meta CAPI error: ${JSON.stringify(json)}`);
+
+            console.error("[sendMetaEvents] Meta CAPI error", {
+                status: response.status,
+                response: json,
+            });
+
+            return {
+                ok: false,
+                skipped: false,
+                reason: "Meta CAPI error",
+                status: response.status,
+                error: json,
+            };
         }
 
         await updateAdEventsStatus(adEventIds, "sent");
@@ -179,24 +212,28 @@ export async function sendMetaEvents({
         };
     } catch (error) {
         await updateAdEventsStatus(adEventIds, "failed");
-        throw error;
+
+        console.error("[sendMetaEvents] failed", error);
+
+        return {
+            ok: false,
+            skipped: false,
+            reason: "Meta send failed",
+            error: error instanceof Error ? error.message : String(error),
+        };
     }
 }
 
 async function getClientTracking({
                                      conversationId,
+                                     clientId,
                                      normalizedPhone,
                                  }: {
-    conversationId: string;
+    conversationId: string | null;
+    clientId: string | null;
     normalizedPhone: string | null;
 }): Promise<ClientTracking | null> {
-    const { data: conversation } = await supabase
-        .from("conversations")
-        .select("client_id")
-        .eq("id", conversationId)
-        .maybeSingle();
-
-    if (conversation?.client_id) {
+    if (clientId) {
         const { data } = await supabase
             .from("clients")
             .select(
@@ -224,10 +261,52 @@ async function getClientTracking({
                 tracking_updated_at
             `
             )
-            .eq("id", conversation.client_id)
+            .eq("id", clientId)
             .maybeSingle();
 
         return (data ?? null) as ClientTracking | null;
+    }
+
+    if (conversationId) {
+        const { data: conversation } = await supabase
+            .from("conversations")
+            .select("client_id")
+            .eq("id", conversationId)
+            .maybeSingle();
+
+        if (conversation?.client_id) {
+            const { data } = await supabase
+                .from("clients")
+                .select(
+                    `
+                    id,
+                    name,
+                    external_contact_id,
+                    created_at,
+                    fbclid,
+                    fbc,
+                    fbp,
+                    ctwa_clid,
+                    gclid,
+                    gbraid,
+                    wbraid,
+                    utm_source,
+                    utm_medium,
+                    utm_campaign,
+                    utm_content,
+                    utm_term,
+                    client_ip_address,
+                    client_user_agent,
+                    state,
+                    country,
+                    tracking_updated_at
+                `
+                )
+                .eq("id", conversation.client_id)
+                .maybeSingle();
+
+            return (data ?? null) as ClientTracking | null;
+        }
     }
 
     if (!normalizedPhone) return null;
@@ -339,10 +418,12 @@ function buildTrackingCustomData(tracking: ClientTracking | null) {
 async function createPendingMetaAdEvents({
                                              events,
                                              conversation_id,
+                                             schedule_id,
                                              sentAt,
                                          }: {
     events: DerivedAdEvent[];
-    conversation_id: string;
+    conversation_id: string | null;
+    schedule_id: string | null;
     sentAt: string;
 }) {
     const { data, error } = await supabase
@@ -350,6 +431,7 @@ async function createPendingMetaAdEvents({
         .insert(
             events.map((event) => ({
                 conversation_id,
+                schedule_id,
                 event_type: event.type,
                 platform: "Meta Ads",
                 status: "pending",
@@ -456,10 +538,7 @@ function parseFullName(name: string | null) {
         };
     }
 
-    const parts = name
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean);
+    const parts = name.trim().split(/\s+/).filter(Boolean);
 
     if (parts.length === 0) {
         return {

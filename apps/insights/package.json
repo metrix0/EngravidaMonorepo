@@ -15,10 +15,11 @@
     "messages": "node --env-file=.env.local ../../scripts/add-messages.mjs"
   },
   "dependencies": {
-    "@engravida/types": "workspace:*",
     "@engravida/components": "workspace:*",
     "@engravida/lib": "workspace:*",
     "@engravida/styles": "workspace:*",
+    "@engravida/types": "workspace:*",
+    "@google-cloud/bigquery": "^8.3.1",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.1",
     "date-fns": "^4.2.1",

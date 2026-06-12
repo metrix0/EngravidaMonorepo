@@ -8,8 +8,12 @@ type SendGoogleEventsInput = {
     phone: string | null;
     email?: string | null;
     name?: string | null;
-    conversation_id: string;
-    conversation_ended_at: string;
+
+    conversation_id?: string | null;
+    conversation_ended_at?: string | null;
+
+    schedule_id?: string | null;
+    client_id?: string | null;
 };
 
 type ClientTracking = {
@@ -68,9 +72,15 @@ export async function sendGoogleEvents({
                                            name,
                                            conversation_id,
                                            conversation_ended_at,
+                                           schedule_id,
+                                           client_id,
                                        }: SendGoogleEventsInput) {
+    const sourceId = conversation_id ?? schedule_id;
+
     console.log("[sendGoogleEvents] started", {
         conversation_id,
+        schedule_id,
+        source_id: sourceId,
         events_count: events.length,
         conversation_ended_at,
         has_phone: Boolean(phone),
@@ -87,6 +97,7 @@ export async function sendGoogleEvents({
     if (events.length === 0) {
         console.log("[sendGoogleEvents] skipped: no ad events", {
             conversation_id,
+            schedule_id,
         });
 
         return {
@@ -96,18 +107,28 @@ export async function sendGoogleEvents({
         };
     }
 
+    if (!sourceId) {
+        throw new Error("sendGoogleEvents requires conversation_id or schedule_id");
+    }
+
+    if (schedule_id && !client_id) {
+        throw new Error("sendGoogleEvents with schedule_id requires client_id");
+    }
+
     const sentAt = new Date().toISOString();
 
     try {
         validateGoogleEnv();
 
         const tracking = await getClientTracking({
-            conversationId: conversation_id,
+            conversationId: conversation_id ?? null,
+            clientId: client_id ?? null,
         });
 
         if (!getBestClickId(tracking)) {
             console.log("[sendGoogleEvents] skipped: no Google click id", {
                 conversation_id,
+                schedule_id,
                 has_gclid: Boolean(tracking?.gclid),
                 has_gbraid: Boolean(tracking?.gbraid),
                 has_wbraid: Boolean(tracking?.wbraid),
@@ -122,17 +143,20 @@ export async function sendGoogleEvents({
 
         const adEventIds = await createPendingGoogleAdEvents({
             events,
-            conversation_id,
+            conversation_id: conversation_id ?? null,
+            schedule_id: schedule_id ?? null,
             sentAt,
         });
 
         console.log("[sendGoogleEvents] pending ad_events created", {
             conversation_id,
+            schedule_id,
             ad_event_ids: adEventIds,
         });
 
         console.log("[sendGoogleEvents] client tracking loaded", {
             conversation_id,
+            schedule_id,
             client_id: tracking?.id ?? null,
             has_gclid: Boolean(tracking?.gclid),
             has_gbraid: Boolean(tracking?.gbraid),
@@ -150,6 +174,7 @@ export async function sendGoogleEvents({
 
         console.log("[sendGoogleEvents] ad_event parameters saved", {
             conversation_id,
+            schedule_id,
             ad_event_ids: adEventIds,
             parameters: sentParameters,
         });
@@ -158,6 +183,7 @@ export async function sendGoogleEvents({
 
         console.log("[sendGoogleEvents] google access token generated", {
             conversation_id,
+            schedule_id,
             has_access_token: Boolean(accessToken),
         });
 
@@ -168,6 +194,7 @@ export async function sendGoogleEvents({
                 account_label: account.label,
                 customer_id: account.customerId,
                 conversation_id,
+                schedule_id,
                 events: events.map((event) => ({
                     type: event.type,
                     google_conversion_name: event.google_conversion_name,
@@ -180,8 +207,8 @@ export async function sendGoogleEvents({
                 .map((event) =>
                     buildClickConversion({
                         event,
-                        conversation_id,
-                        conversation_ended_at,
+                        sourceId,
+                        eventTime: event.occurred_at ?? conversation_ended_at ?? sentAt,
                         tracking,
                         account,
                         phone,
@@ -321,6 +348,7 @@ export async function sendGoogleEvents({
 
             console.log("[sendGoogleEvents] all accounts skipped/failed", {
                 conversation_id,
+                schedule_id,
                 results,
             });
 
@@ -336,6 +364,7 @@ export async function sendGoogleEvents({
 
         console.log("[sendGoogleEvents] completed", {
             conversation_id,
+            schedule_id,
             ad_event_ids: adEventIds,
             successful_uploads: successfulUploads.length,
             total_accounts: googleAdsAccounts.length,
@@ -350,6 +379,7 @@ export async function sendGoogleEvents({
     } catch (error) {
         console.error("[sendGoogleEvents] failed", {
             conversation_id,
+            schedule_id,
             error,
         });
 
@@ -359,8 +389,8 @@ export async function sendGoogleEvents({
 
 function buildClickConversion({
                                   event,
-                                  conversation_id,
-                                  conversation_ended_at,
+                                  sourceId,
+                                  eventTime,
                                   tracking,
                                   account,
                                   phone,
@@ -368,8 +398,8 @@ function buildClickConversion({
                                   name,
                               }: {
     event: DerivedAdEvent;
-    conversation_id: string;
-    conversation_ended_at: string;
+    sourceId: string;
+    eventTime: string;
     tracking: ClientTracking | null;
     account: GoogleAdsAccount;
     phone: string | null;
@@ -391,8 +421,8 @@ function buildClickConversion({
 
     return removeNullValues({
         conversionAction,
-        conversionDateTime: toGoogleAdsDateTime(conversation_ended_at),
-        orderId: `${conversation_id}:${event.type}`,
+        conversionDateTime: toGoogleAdsDateTime(eventTime),
+        orderId: `${sourceId}:${event.type}`,
 
         ...clickId,
 
@@ -432,9 +462,30 @@ function getBestClickIdName(tracking: ClientTracking | null) {
 
 async function getClientTracking({
                                      conversationId,
+                                     clientId,
                                  }: {
-    conversationId: string;
+    conversationId: string | null;
+    clientId: string | null;
 }): Promise<ClientTracking | null> {
+    if (clientId) {
+        const { data } = await supabase
+            .from("clients")
+            .select(
+                `
+                id,
+                gclid,
+                gbraid,
+                wbraid
+            `
+            )
+            .eq("id", clientId)
+            .maybeSingle();
+
+        return (data ?? null) as ClientTracking | null;
+    }
+
+    if (!conversationId) return null;
+
     const { data: conversation } = await supabase
         .from("conversations")
         .select("client_id")
@@ -485,10 +536,12 @@ async function getGoogleAccessToken() {
 async function createPendingGoogleAdEvents({
                                                events,
                                                conversation_id,
+                                               schedule_id,
                                                sentAt,
                                            }: {
     events: DerivedAdEvent[];
-    conversation_id: string;
+    conversation_id: string | null;
+    schedule_id: string | null;
     sentAt: string;
 }) {
     const { data, error } = await supabase
@@ -496,6 +549,7 @@ async function createPendingGoogleAdEvents({
         .insert(
             events.map((event) => ({
                 conversation_id,
+                schedule_id,
                 event_type: event.type,
                 platform: "Google Ads",
                 status: "pending",

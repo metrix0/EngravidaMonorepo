@@ -86,22 +86,39 @@ export default function SidePanelCRM({
     useEffect(() => {
         let isMounted = true;
 
-        fetchCurrentAttendant()
-            .then((response) => {
+        async function loadCurrentAttendant() {
+            try {
+                const response = await fetchCurrentAttendant();
+
                 if (!isMounted) return;
 
                 setCurrentAttendant(response.attendant);
                 setCurrentUserEmail(response.user?.email ?? null);
-            })
-            .catch((error) => {
+            } catch (error) {
                 console.error(
                     "[SidePanelCRM] failed to load current attendant",
                     error
                 );
-            });
+            }
+        }
+
+        function handleAttendantStatusChanged() {
+            void loadCurrentAttendant();
+        }
+
+        void loadCurrentAttendant();
+
+        window.addEventListener(
+            "attendant-status-changed",
+            handleAttendantStatusChanged
+        );
 
         return () => {
             isMounted = false;
+            window.removeEventListener(
+                "attendant-status-changed",
+                handleAttendantStatusChanged
+            );
         };
     }, []);
 
@@ -141,6 +158,8 @@ export default function SidePanelCRM({
             const response = currentAttendant.is_online
                 ? await setCurrentAttendantOffline()
                 : await setCurrentAttendantOnline();
+
+            window.dispatchEvent(new Event("attendant-status-changed"));
 
             setCurrentAttendant((current) => {
                 if (response.attendant) return response.attendant;
@@ -207,10 +226,8 @@ export default function SidePanelCRM({
 
                 {isStatusMenuOpen && currentAttendant && (
                     <div
-                        className={`z-[90] rounded-xl border border-border bg-white p-2 shadow-lg ${
-                            isExpanded
-                                ? "fixed bottom-7 left-[84x] w-44"
-                                : "fixed bottom-7 left-[84px] w-44"
+                        className={`fixed duration-200 bottom-7 z-[90] w-44 rounded-xl border border-border bg-white p-2 shadow-lg ${
+                            isExpanded ? "left-[258px]" : "left-[84px]"
                         }`}
                     >
                         <button
