@@ -65,7 +65,6 @@ export async function getBigquerySchedules({
         SELECT *
         FROM schedules
         WHERE agendamento_criado_em >= DATE_SUB(CURRENT_DATE('America/Sao_Paulo'), INTERVAL @daysBack DAY)
-          AND unidade = 'São Paulo'
             LIMIT @limit
     `;
 
@@ -76,6 +75,13 @@ export async function getBigquerySchedules({
             daysBack,
             limit,
         },
+    });
+
+    console.log("[getBigquerySchedules] raw BigQuery rows", {
+        count: rows.length,
+        daysBack,
+        limit,
+        rows: rows.slice(0, 10),
     });
 
     return rows as BigqueryScheduleRow[];

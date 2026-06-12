@@ -58,16 +58,29 @@ export async function syncBigquerySchedules({
         .map(normalizeBigquerySchedule)
         .filter((schedule): schedule is NormalizedSchedule => Boolean(schedule));
 
-    const existingHashes = await getExistingScheduleHashes(
-        schedules.map((schedule) => schedule.source_hash)
+    const dedupedSchedules = Array.from(
+        new Map(
+            schedules.map((schedule) => [schedule.source_hash, schedule])
+        ).values()
     );
 
-    const newSchedules = schedules.filter(
+    console.log("[syncBigquerySchedules] DEDUPED schedules from BigQuery", {
+        before: schedules.length,
+        after: dedupedSchedules.length,
+        removed: schedules.length - dedupedSchedules.length,
+    });
+
+    const existingHashes = await getExistingScheduleHashes(
+        dedupedSchedules.map((schedule) => schedule.source_hash)
+    );
+
+    const newSchedules = dedupedSchedules.filter(
         (schedule) => !existingHashes.has(schedule.source_hash)
     );
 
     console.log("[syncBigquerySchedules] NEW schedules after duplicate check", {
         total_normalized: schedules.length,
+        total_deduped: dedupedSchedules.length,
         existing: existingHashes.size,
         new: newSchedules.length,
     });
@@ -110,31 +123,6 @@ export async function syncBigquerySchedules({
 
         const eventTime = getScheduleEventTime(schedule.created_in_source_at);
 
-        if (!eventTime) {
-            console.warn("[syncBigquerySchedules] skipping ads event without usable event time", {
-                source_hash: schedule.source_hash,
-                created_in_source_at: schedule.created_in_source_at,
-                scheduled_for: schedule.scheduled_for,
-            });
-
-            results.push({
-                schedule_id: insertedSchedule.id,
-                client_id: client.id,
-                source_hash: schedule.source_hash,
-                meta: {
-                    ok: false,
-                    skipped: true,
-                    reason: "Missing usable created_in_source_at",
-                },
-                google: {
-                    ok: false,
-                    skipped: true,
-                    reason: "Missing usable created_in_source_at",
-                },
-            });
-
-            continue;
-        }
 
         const event: DerivedAdEvent = {
             type: "schedule",
@@ -296,10 +284,11 @@ async function findOrCreateClientFromSchedule(
         if (existingClient) {
             const updates: Record<string, string> = {};
 
-            if (!existingClient.name && schedule.patient_name) {
-                updates.name = schedule.patient_name;
-            }
+            const normalizedClientName = normalizeClientName(schedule.patient_name);
 
+            if (normalizedClientName) {
+                updates.name = normalizedClientName;
+            }
             if (!existingClient.unit_id && unit?.id) {
                 updates.unit_id = unit.id;
             }
@@ -332,7 +321,7 @@ async function findOrCreateClientFromSchedule(
     const { data: newClient, error: createError } = await supabase
         .from("clients")
         .insert({
-            name: schedule.patient_name,
+            name: normalizeClientName(schedule.patient_name),
             phone: schedule.normalized_phone ?? schedule.phone,
             unit_id: unit?.id ?? null,
             first_seen_at: now,
@@ -440,17 +429,13 @@ function buildPhoneSearchOptions(normalizedPhone: string | null) {
 }
 
 function getScheduleEventTime(date: string | null) {
-    if (!date) return null;
-
     const today = getTodayInSaoPaulo();
 
-    if (date === today) {
+    if (!date || date === today) {
         return new Date().toISOString();
     }
 
-    // No real hour/min/sec available.
-    // Do not fake a timestamp for older date-only events.
-    return null;
+    return new Date(`${date}T12:00:00-03:00`).toISOString();
 }
 
 function getTodayInSaoPaulo() {
@@ -476,4 +461,24 @@ function chunk<T>(items: T[], size: number) {
     }
 
     return chunks;
+}
+
+function normalizeClientName(value: string | null | undefined) {
+    const cleaned = value?.trim().replace(/\s+/g, " ");
+
+    if (!cleaned) return null;
+
+    const lowercaseWords = new Set(["da", "de", "do", "das", "dos", "e"]);
+
+    return cleaned
+        .toLowerCase()
+        .split(" ")
+        .map((part, index) => {
+            if (index > 0 && lowercaseWords.has(part)) {
+                return part;
+            }
+
+            return part.charAt(0).toUpperCase() + part.slice(1);
+        })
+        .join(" ");
 }
