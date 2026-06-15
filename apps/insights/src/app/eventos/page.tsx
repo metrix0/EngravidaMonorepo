@@ -762,11 +762,12 @@ function RecentEventsCard({
                                 <MessageCircleMore size={16} />
                             </button>
                         ) : (
-                            <div
-                                title="Evento Clinisys"
-                                className="flex w-full items-center justify-center text-slate-500"
-                            >
-                                <Monitor size={16} />
+                            <div className={"w-full flex justify-center"}>
+                            <InfoTooltip text="Evento disparado por Clinisys" widthClassName={"w-55 text-center"}>
+                                <div className="flex w-full items-center justify-center text-slate-500 ">
+                                    <img src={"clinisys.png"} width={16} />
+                                </div>
+                            </InfoTooltip>
                             </div>
                         )}
                     </div>

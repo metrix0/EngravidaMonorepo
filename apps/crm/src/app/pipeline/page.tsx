@@ -9,6 +9,7 @@ import {
     TrendingUp,
     User,
     Users, X,
+    Trash2,
     XCircle,
 } from "lucide-react";
 
@@ -401,6 +402,48 @@ export default function PipelinePage() {
         }
     }
 
+    async function removeClientFromPipeline(clientId: string) {
+        if (!selectedPipelineId) return;
+
+        const client = clients.find((client) => client.id === clientId);
+
+        if (!client?.pipeline_stage_id) return;
+
+        const previousClients = clients;
+        const fromStageId = client.pipeline_stage_id;
+
+        setClients((current) =>
+            current.map((client) =>
+                client.id === clientId
+                    ? {
+                        ...client,
+                        pipeline_stage_id: null,
+                        updated_at: new Date().toISOString(),
+                    }
+                    : client
+            )
+        );
+
+        const response = await fetch("/api/pipeline/client-stage", {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                client_id: clientId,
+                pipeline_id: selectedPipelineId,
+                from_stage_id: fromStageId,
+                to_stage_id: null,
+                moved_by_attendant_id: null,
+            }),
+        });
+
+        if (!response.ok) {
+            setClients(previousClients);
+            console.error(await response.json());
+        }
+    }
+
     async function addClientToPipeline(client: AvailableClient) {
         if (!selectedPipelineId || !firstStageInSelectedPipeline) return;
 
@@ -638,6 +681,7 @@ export default function PipelinePage() {
                                         stage={stage}
                                         clients={stageClients}
                                         onMoveClient={moveClient}
+                                        onRemoveClient={removeClientFromPipeline}
                                     />
                                 );
                             })}
@@ -673,11 +717,18 @@ function PipelineColumn({
                             stage,
                             clients,
                             onMoveClient,
+                            onRemoveClient,
                         }: {
     stage: PipelineStage;
     clients: Client[];
     onMoveClient: (clientId: string, stageId: string) => void;
+    onRemoveClient: (clientId: string) => void;
 }) {
+    const [expanded, setExpanded] = useState(false);
+
+    const visibleClients = expanded ? clients : clients.slice(0, 5);
+    const hiddenClientsCount = clients.length - 5;
+
     return (
         <div
             onDragOver={(event) => event.preventDefault()}
@@ -705,26 +756,51 @@ function PipelineColumn({
             </div>
 
             <div className="space-y-3">
-                {clients.slice(0, 5).map((client) => (
-                    <PipelineClientCard key={client.id} client={client}/>
+                {visibleClients.map((client) => (
+                    <PipelineClientCard
+                        key={client.id}
+                        client={client}
+                        onRemoveClient={onRemoveClient}
+                    />
                 ))}
             </div>
 
             {clients.length > 5 && (
                 <button
                     type="button"
+                    onClick={() => setExpanded((current) => !current)}
                     className="mt-5 w-full cursor-pointer text-center text-sm font-semibold text-blue"
                 >
-                    + Ver mais {clients.length - 5}
+                    {expanded
+                        ? "− Ver menos"
+                        : `+ Ver mais ${hiddenClientsCount}`}
                 </button>
             )}
         </div>
     );
 }
 
-function PipelineClientCard({client}: { client: Client }) {
+function PipelineClientCard({
+                                client,
+                                onRemoveClient,
+                            }: {
+    client: Client;
+    onRemoveClient: (clientId: string) => void;
+}) {
     return (
-        <Card className="rounded-xl p-3">
+        <Card className="group relative rounded-xl p-3">
+            <button
+                type="button"
+                title="Remover do pipeline"
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onRemoveClient(client.id);
+                }}
+                className="absolute bottom-3 left-3 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-red-50 text-slate-500  opacity-0 shadow-sm transition hover:text-red duration-200 group-hover:opacity-100"
+            >
+                <Trash2 size={14}/>
+            </button>
+
             <div
                 draggable
                 onDragStart={(event) => {
@@ -732,9 +808,7 @@ function PipelineClientCard({client}: { client: Client }) {
                 }}
                 className="flex cursor-grab gap-3 active:cursor-grabbing"
             >
-                <InitialsAvatar
-                    name={client.name ?? "Cliente"}
-                />
+                <InitialsAvatar name={client.name ?? "Cliente"}/>
 
                 <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-bold text-text">
@@ -758,17 +832,6 @@ function PipelineClientCard({client}: { client: Client }) {
             </div>
         </Card>
     );
-}
-
-function getInitials(name: string | null) {
-    if (!name) return "?";
-
-    return name
-        .split(" ")
-        .slice(0, 2)
-        .map((part) => part[0])
-        .join("")
-        .toUpperCase();
 }
 
 function sourceLabel(source: string | null) {

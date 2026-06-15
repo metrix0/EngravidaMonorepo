@@ -13,6 +13,81 @@ import {
     type AdPlatform,
 } from "@/types/ad-event";
 
+type DateRange = {
+    start: string;
+    end: string;
+};
+
+type GetEventsInput = {
+    dateRange: DateRange;
+    unitIds: string[];
+    serviceIds: string[];
+    platforms: AdPlatform[];
+    eventTypes: AdEventType[];
+    statuses: AdEventStatus[];
+    tunnelValues: string[];
+    originValues: string[];
+};
+
+type SupabaseRelation<T> = T | T[] | null;
+
+type ClientRow = {
+    id: string;
+    name: string | null;
+    phone: string | null;
+};
+
+type ConversationRow = {
+    id: string;
+    unit_id: string | null;
+    service_id: string | null;
+    tunnel: string | null;
+    origin: string | null;
+    clients: SupabaseRelation<ClientRow>;
+};
+
+type AdEventRow = {
+    id: string;
+    conversation_id: string | null;
+    schedule_id: string | null;
+    event_type: AdEventType;
+    platform: AdPlatform;
+    status: AdEventStatus;
+    event_date: string;
+    parameters: string[] | null;
+    conversations: SupabaseRelation<ConversationRow>;
+};
+
+type ScheduleRow = {
+    id: string;
+    client_id: string | null;
+    patient_name: string | null;
+    phone: string | null;
+};
+
+type EnrichedAdEventRow = AdEventRow & {
+    schedule_patient_name: string | null;
+    schedule_phone: string | null;
+    schedule_client_name: string | null;
+    schedule_client_phone: string | null;
+};
+
+type GroupedRecentEvent = {
+    id: string;
+    conversation_id: string | null;
+    schedule_id: string | null;
+    event_type: AdEventType;
+    status: AdEventStatus;
+    event_date: string;
+    platform: string;
+    platforms: AdPlatform[];
+    parameters: string[];
+    client_name: string;
+    phone: string;
+};
+
+const NULL_FILTER_VALUE = "__NULL__";
+
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
 
@@ -86,6 +161,7 @@ export async function GET(request: Request) {
         recent: recentEvents.map((event) => ({
             id: event.id,
             conversation_id: event.conversation_id,
+            schedule_id: event.schedule_id,
             date: event.event_date,
             client_name: event.client_name,
             phone: event.phone,
@@ -93,7 +169,7 @@ export async function GET(request: Request) {
             platform: event.platform,
             platforms: event.platforms,
             status: event.status,
-            parameters: event.parameters ?? [],
+            parameters: event.parameters,
         })),
 
         recent_total: groupedRecentEvents.length,
@@ -101,22 +177,6 @@ export async function GET(request: Request) {
         page_size: pageSize,
     });
 }
-
-type DateRange = {
-    start: string;
-    end: string;
-};
-
-type GetEventsInput = {
-    dateRange: DateRange;
-    unitIds: string[];
-    serviceIds: string[];
-    platforms: AdPlatform[];
-    eventTypes: AdEventType[];
-    statuses: AdEventStatus[];
-    tunnelValues: string[];
-    originValues: string[];
-};
 
 async function getEvents({
                              dateRange,
@@ -134,6 +194,7 @@ async function getEvents({
             `
             id,
             conversation_id,
+            schedule_id,
             event_type,
             platform,
             status,
@@ -183,16 +244,18 @@ async function getEvents({
         throw new Error(error.message);
     }
 
-    return filterByTunnelAndOrigin(data ?? [], {
+    const events = (data ?? []) as AdEventRow[];
+
+    const enrichedEvents = await enrichEventsWithScheduleClients(events);
+
+    return filterByTunnelAndOrigin(enrichedEvents, {
         tunnelValues,
         originValues,
-    }) as any[];
+    });
 }
 
-const NULL_FILTER_VALUE = "__NULL__";
-
-function filterByTunnelAndOrigin(
-    events: any[],
+function filterByTunnelAndOrigin<T extends { conversations: SupabaseRelation<ConversationRow> }>(
+    events: T[],
     {
         tunnelValues,
         originValues,
@@ -202,8 +265,10 @@ function filterByTunnelAndOrigin(
     }
 ) {
     return events.filter((event) => {
-        const tunnel = emptyToNull(event.conversations?.tunnel);
-        const origin = emptyToNull(event.conversations?.origin);
+        const conversation = toOne(event.conversations);
+
+        const tunnel = emptyToNull(conversation?.tunnel);
+        const origin = emptyToNull(conversation?.origin);
 
         const matchesTunnel =
             tunnelValues.length === 0 ||
@@ -217,16 +282,8 @@ function filterByTunnelAndOrigin(
     });
 }
 
-function emptyToNull(value: unknown) {
-    if (value === null || value === undefined) return null;
-
-    const trimmed = String(value).trim();
-
-    return trimmed ? trimmed : null;
-}
-
-function groupRecentEvents(events: any[]) {
-    const grouped = new Map<string, any>();
+function groupRecentEvents(events: EnrichedAdEventRow[]) {
+    const grouped = new Map<string, GroupedRecentEvent>();
 
     for (const event of events) {
         const key = event.conversation_id
@@ -248,14 +305,15 @@ function groupRecentEvents(events: any[]) {
             grouped.set(key, {
                 id: event.id,
                 conversation_id: event.conversation_id,
+                schedule_id: event.schedule_id,
                 event_type: event.event_type,
                 status: event.status,
                 event_date: event.event_date,
                 platform: event.platform,
                 platforms: [event.platform],
                 parameters: eventParameters,
-                client_name: event.conversations?.clients?.name ?? "Clinisys",
-                phone: event.conversations?.clients?.phone ?? "",
+                client_name: resolveClientName(event),
+                phone: resolveClientPhone(event),
             });
 
             continue;
@@ -267,7 +325,7 @@ function groupRecentEvents(events: any[]) {
 
         existing.platform = existing.platforms.join(" + ");
         existing.parameters = uniqueStrings([
-            ...(existing.parameters ?? []),
+            ...existing.parameters,
             ...eventParameters,
         ]);
     }
@@ -279,7 +337,106 @@ function groupRecentEvents(events: any[]) {
     );
 }
 
-function buildKpis(events: any[]) {
+async function enrichEventsWithScheduleClients(events: AdEventRow[]) {
+    const scheduleIds = uniqueStrings(
+        events
+            .map((event) => event.schedule_id)
+            .filter((value): value is string => Boolean(value))
+    );
+
+    if (scheduleIds.length === 0) {
+        return events.map((event) => ({
+            ...event,
+            schedule_patient_name: null,
+            schedule_phone: null,
+            schedule_client_name: null,
+            schedule_client_phone: null,
+        }));
+    }
+
+    const { data: schedulesData, error: schedulesError } = await supabase
+        .from("schedules")
+        .select("id, client_id, patient_name, phone")
+        .in("id", scheduleIds);
+
+    if (schedulesError) {
+        throw new Error(schedulesError.message);
+    }
+
+    const schedules = (schedulesData ?? []) as ScheduleRow[];
+
+    const clientIds = uniqueStrings(
+        schedules
+            .map((schedule) => schedule.client_id)
+            .filter((value): value is string => Boolean(value))
+    );
+
+    const { data: clientsData, error: clientsError } =
+        clientIds.length > 0
+            ? await supabase
+                .from("clients")
+                .select("id, name, phone")
+                .in("id", clientIds)
+            : { data: [] as ClientRow[], error: null };
+
+    if (clientsError) {
+        throw new Error(clientsError.message);
+    }
+
+    const clients = (clientsData ?? []) as ClientRow[];
+
+    const schedulesById = new Map(
+        schedules.map((schedule) => [schedule.id, schedule])
+    );
+
+    const clientsById = new Map(
+        clients.map((client) => [client.id, client])
+    );
+
+    return events.map((event) => {
+        const schedule = event.schedule_id
+            ? schedulesById.get(event.schedule_id)
+            : null;
+
+        const client = schedule?.client_id
+            ? clientsById.get(schedule.client_id)
+            : null;
+
+        return {
+            ...event,
+            schedule_patient_name: cleanDisplayText(schedule?.patient_name),
+            schedule_phone: cleanDisplayText(schedule?.phone),
+            schedule_client_name: cleanDisplayText(client?.name),
+            schedule_client_phone: cleanDisplayText(client?.phone),
+        };
+    });
+}
+
+function resolveClientName(event: EnrichedAdEventRow) {
+    const conversation = toOne(event.conversations);
+    const conversationClient = toOne(conversation?.clients);
+
+    return (
+        cleanDisplayText(conversationClient?.name) ??
+        event.schedule_client_name ??
+        event.schedule_patient_name ??
+        "Nome não encontrado"
+    );
+}
+
+function resolveClientPhone(event: EnrichedAdEventRow) {
+    const conversation = toOne(event.conversations);
+    const conversationClient = toOne(conversation?.clients);
+
+    return (
+        cleanDisplayText(conversationClient?.phone) ??
+        event.schedule_client_phone ??
+        event.schedule_phone ??
+        ""
+    );
+}
+
+function buildKpis(events: EnrichedAdEventRow[]) {
     const totalEvents = events.length;
     const sentEvents = events.filter((event) => event.status === "sent").length;
     const failedEvents = events.filter((event) => event.status === "failed").length;
@@ -308,7 +465,7 @@ function buildKpis(events: any[]) {
     };
 }
 
-function buildByPlatform(events: any[]) {
+function buildByPlatform(events: EnrichedAdEventRow[]) {
     const totalEvents = events.length;
 
     return AD_PLATFORMS.map((platform) => {
@@ -322,7 +479,7 @@ function buildByPlatform(events: any[]) {
     });
 }
 
-function buildByType(events: any[]) {
+function buildByType(events: EnrichedAdEventRow[]) {
     const totalEvents = events.length;
 
     return AD_EVENT_TYPES.map((eventType) => {
@@ -339,7 +496,7 @@ function buildByType(events: any[]) {
     });
 }
 
-function buildByStatus(events: any[]) {
+function buildByStatus(events: EnrichedAdEventRow[]) {
     const totalEvents = events.length;
 
     return AD_EVENT_STATUSES.map((status) => {
@@ -354,7 +511,52 @@ function buildByStatus(events: any[]) {
     });
 }
 
-function hasParameter(event: any, parameter: string) {
+function buildDailyEvents(
+    events: EnrichedAdEventRow[],
+    startValue: string,
+    endValue: string
+) {
+    const start = new Date(startValue);
+    const end = new Date(endValue);
+
+    const days: Record<string, string | number>[] = [];
+
+    const cursor = new Date(start);
+
+    while (cursor <= end) {
+        const dateKey = cursor.toISOString().slice(0, 10);
+
+        const item: Record<string, string | number> = {
+            date: formatShortDate(cursor),
+        };
+
+        for (const platform of AD_PLATFORMS) {
+            for (const eventType of AD_EVENT_TYPES) {
+                const key = getDailyKey(platform, eventType);
+
+                item[key] = events.filter((event) => {
+                    const eventDate = new Date(event.event_date)
+                        .toISOString()
+                        .slice(0, 10);
+
+                    return (
+                        eventDate === dateKey &&
+                        event.platform === platform &&
+                        event.event_type === eventType
+                    );
+                }).length;
+            }
+        }
+
+        days.push(item);
+
+        cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return days;
+}
+
+function hasParameter(event: EnrichedAdEventRow, parameter: string) {
     if (!Array.isArray(event.parameters)) return false;
 
     return event.parameters.includes(parameter);
@@ -422,45 +624,28 @@ function percentage(value: number, total: number) {
     return Math.round((value / total) * 1000) / 10;
 }
 
-function buildDailyEvents(events: any[], startValue: string, endValue: string) {
-    const start = new Date(startValue);
-    const end = new Date(endValue);
+function emptyToNull(value: unknown) {
+    if (value === null || value === undefined) return null;
 
-    const days: Record<string, string | number>[] = [];
+    const trimmed = String(value).trim();
 
-    const cursor = new Date(start);
+    return trimmed ? trimmed : null;
+}
 
-    while (cursor <= end) {
-        const dateKey = cursor.toISOString().slice(0, 10);
+function cleanDisplayText(value: unknown) {
+    if (value === null || value === undefined) return null;
 
-        const item: Record<string, string | number> = {
-            date: formatShortDate(cursor),
-        };
+    const cleaned = String(value).trim().replace(/\s+/g, " ");
 
-        for (const platform of AD_PLATFORMS) {
-            for (const eventType of AD_EVENT_TYPES) {
-                const key = getDailyKey(platform, eventType);
+    return cleaned || null;
+}
 
-                item[key] = events.filter((event) => {
-                    const eventDate = new Date(event.event_date)
-                        .toISOString()
-                        .slice(0, 10);
-
-                    return (
-                        eventDate === dateKey &&
-                        event.platform === platform &&
-                        event.event_type === eventType
-                    );
-                }).length;
-            }
-        }
-
-        days.push(item);
-
-        cursor.setDate(cursor.getDate() + 1);
+function toOne<T>(value: T | T[] | null | undefined): T | null {
+    if (Array.isArray(value)) {
+        return value[0] ?? null;
     }
 
-    return days;
+    return value ?? null;
 }
 
 function getDailyKey(platform: string, eventType: string) {

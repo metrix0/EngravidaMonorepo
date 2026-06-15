@@ -12,6 +12,10 @@ import {
 } from "@/lib/schedules/getBigquerySchedules";
 import { findOrCreateUnitByName } from "@/lib/units/findOrCreateUnitByName";
 
+const FIRST_REPRODUCTION_EVALUATION_PIPELINE_ID =
+    "22222222-2222-2222-2222-222222222222";
+const FIRST_REPRODUCTION_EVALUATION_STAGE_ID =
+    "21111111-1111-1111-1111-111111111111";
 
 type NormalizedSchedule = {
     source_hash: string;
@@ -35,7 +39,9 @@ type ClientForSchedule = {
     phone: string | null;
     email: string | null;
     unit_id: string | null;
+    pipeline_stage_id: string | null;
 };
+
 export async function syncBigquerySchedules({
                                                 daysBack = 60,
                                                 limit = 5000,
@@ -90,6 +96,7 @@ export async function syncBigquerySchedules({
     let savedToSupabase = 0;
     let metaSent = 0;
     let googleSent = 0;
+    let fivPipelineStageUpdated = 0;
 
     for (const schedule of newSchedules) {
         const client = await findOrCreateClientFromSchedule(schedule);
@@ -121,8 +128,17 @@ export async function syncBigquerySchedules({
 
         savedToSupabase += 1;
 
-        const eventTime = getScheduleEventTime(schedule.created_in_source_at);
+        const pipelineMove =
+            await moveClientToFirstReproductionEvaluationStageIfEmpty({
+                client,
+                schedule,
+            });
 
+        if (pipelineMove.updated) {
+            fivPipelineStageUpdated += 1;
+        }
+
+        const eventTime = getScheduleEventTime(schedule.created_in_source_at);
 
         const event: DerivedAdEvent = {
             type: "schedule",
@@ -170,12 +186,16 @@ export async function syncBigquerySchedules({
             schedule_id: insertedSchedule.id,
             client_id: client.id,
             source_hash: schedule.source_hash,
+            pipeline_move: pipelineMove,
             meta,
             google,
         });
     }
 
     console.log(`[syncBigquerySchedules] SAVED ${savedToSupabase} TO SUPABASE`);
+    console.log("[syncBigquerySchedules] UPDATED FIV pipeline stages", {
+        fiv_pipeline_stage_updated: fivPipelineStageUpdated,
+    });
     console.log("[syncBigquerySchedules] SENT schedule events", {
         meta_sent: metaSent,
         google_sent: googleSent,
@@ -188,6 +208,7 @@ export async function syncBigquerySchedules({
         existing: existingHashes.size,
         inserted: newSchedules.length,
         saved_to_supabase: savedToSupabase,
+        fiv_pipeline_stage_updated: fivPipelineStageUpdated,
         meta_sent: metaSent,
         google_sent: googleSent,
         results,
@@ -273,7 +294,7 @@ async function findOrCreateClientFromSchedule(
     if (phoneOptions.length > 0) {
         const { data: existingClient, error } = await supabase
             .from("clients")
-            .select("id, name, phone, email, unit_id")
+            .select("id, name, phone, email, unit_id, pipeline_stage_id")
             .or(phoneOptions.map((phone) => `phone.eq.${phone}`).join(","))
             .maybeSingle();
 
@@ -289,6 +310,7 @@ async function findOrCreateClientFromSchedule(
             if (normalizedClientName) {
                 updates.name = normalizedClientName;
             }
+
             if (!existingClient.unit_id && unit?.id) {
                 updates.unit_id = unit.id;
             }
@@ -327,7 +349,7 @@ async function findOrCreateClientFromSchedule(
             first_seen_at: now,
             last_interaction_at: now,
         })
-        .select("id, name, phone, email, unit_id")
+        .select("id, name, phone, email, unit_id, pipeline_stage_id")
         .single();
 
     if (createError) {
@@ -335,6 +357,92 @@ async function findOrCreateClientFromSchedule(
     }
 
     return newClient as ClientForSchedule;
+}
+
+async function moveClientToFirstReproductionEvaluationStageIfEmpty({
+                                                                       client,
+                                                                       schedule,
+                                                                   }: {
+    client: ClientForSchedule;
+    schedule: NormalizedSchedule;
+}) {
+    if (!isFirstEvaluationProcedure(schedule.procedure_name)) {
+        return {
+            updated: false,
+            skipped_reason: "procedure_not_matching" as const,
+        };
+    }
+
+    if (client.pipeline_stage_id) {
+        return {
+            updated: false,
+            skipped_reason: "client_already_in_pipeline_stage" as const,
+        };
+    }
+
+    const now = new Date().toISOString();
+
+    const { data: updatedClient, error: updateError } = await supabase
+        .from("clients")
+        .update({
+            pipeline_stage_id: FIRST_REPRODUCTION_EVALUATION_STAGE_ID,
+            updated_at: now,
+        })
+        .eq("id", client.id)
+        .is("pipeline_stage_id", null)
+        .select("id, pipeline_stage_id")
+        .maybeSingle();
+
+    if (updateError) {
+        throw updateError;
+    }
+
+    if (!updatedClient) {
+        return {
+            updated: false,
+            skipped_reason: "client_already_in_pipeline_stage" as const,
+        };
+    }
+
+    const { error: historyError } = await supabase
+        .from("pipeline_history")
+        .insert({
+            client_id: client.id,
+            pipeline_id: FIRST_REPRODUCTION_EVALUATION_PIPELINE_ID,
+            from_stage_id: null,
+            to_stage_id: FIRST_REPRODUCTION_EVALUATION_STAGE_ID,
+            moved_by_attendant_id: null,
+            moved_at: now,
+            note: `Automatically moved from CliniSys schedule import for procedure: ${
+                schedule.procedure_name ?? "unknown"
+            }`,
+        });
+
+    if (historyError) {
+        throw historyError;
+    }
+
+    client.pipeline_stage_id = FIRST_REPRODUCTION_EVALUATION_STAGE_ID;
+
+    return {
+        updated: true,
+        pipeline_id: FIRST_REPRODUCTION_EVALUATION_PIPELINE_ID,
+        stage_id: FIRST_REPRODUCTION_EVALUATION_STAGE_ID,
+    };
+}
+
+function isFirstEvaluationProcedure(procedureName: string | null) {
+    const normalized = normalizeProcedureMatchText(procedureName);
+
+    return /\b(?:1|1a|1o|primeira)\s+avaliacao\b/.test(normalized);
+}
+
+function normalizeProcedureMatchText(value: string | null) {
+    return normalizeHashText(value)
+        .replace(/[ªº°]/g, " ")
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function createScheduleHash({

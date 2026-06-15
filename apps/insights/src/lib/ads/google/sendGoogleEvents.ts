@@ -1,7 +1,7 @@
 // src/lib/ads/google/sendGoogleEvents.ts
-import { createHash } from "crypto";
-import { supabase } from "@engravida/lib";
-import type { DerivedAdEvent } from "@/lib/ads/deriveAdEventsFromAnalysis";
+import {createHash} from "crypto";
+import {supabase} from "@engravida/lib";
+import type {DerivedAdEvent} from "@/lib/ads/deriveAdEventsFromAnalysis";
 
 type SendGoogleEventsInput = {
     events: DerivedAdEvent[];
@@ -168,6 +168,19 @@ export async function sendGoogleEvents({
         });
 
         const results = [];
+
+        adEventIds = await createPendingGoogleAdEvents({
+            events,
+            conversation_id: conversation_id ?? null,
+            schedule_id: schedule_id ?? null,
+            sentAt,
+        });
+
+        console.log("[sendGoogleEvents] ad_events created for send attempt", {
+            conversation_id,
+            schedule_id,
+            ad_event_ids: adEventIds,
+        });
 
         for (const account of googleAdsAccounts) {
             console.log(`[sendGoogleEvents][${account.key}] preparing upload`, {
@@ -344,19 +357,6 @@ export async function sendGoogleEvents({
             };
         }
 
-        adEventIds = await createPendingGoogleAdEvents({
-            events,
-            conversation_id: conversation_id ?? null,
-            schedule_id: schedule_id ?? null,
-            sentAt,
-        });
-
-        console.log("[sendGoogleEvents] sent ad_events created", {
-            conversation_id,
-            schedule_id,
-            ad_event_ids: adEventIds,
-        });
-
         await updateAdEventsParameters(adEventIds, sentParameters);
 
         console.log("[sendGoogleEvents] ad_event parameters saved", {
@@ -389,6 +389,10 @@ export async function sendGoogleEvents({
             error,
         });
 
+        if (adEventIds.length > 0) {
+            await updateAdEventsStatus(adEventIds, "failed");
+        }
+
         return {
             ok: false,
             skipped: false,
@@ -396,437 +400,436 @@ export async function sendGoogleEvents({
             error: error instanceof Error ? error.message : String(error),
         };
     }
-}
 
-function buildClickConversion({
-                                  event,
-                                  sourceId,
-                                  eventTime,
-                                  tracking,
-                                  account,
-                                  phone,
-                                  email,
-                                  name,
-                              }: {
-    event: DerivedAdEvent;
-    sourceId: string;
-    eventTime: string;
-    tracking: ClientTracking | null;
-    account: GoogleAdsAccount;
-    phone: string | null;
-    email?: string | null;
-    name?: string | null;
-}) {
-    const conversionAction = getConversionActionResourceName(
-        event.google_conversion_name,
-        account
-    );
+    function buildClickConversion({
+                                      event,
+                                      sourceId,
+                                      eventTime,
+                                      tracking,
+                                      account,
+                                      phone,
+                                      email,
+                                      name,
+                                  }: {
+        event: DerivedAdEvent;
+        sourceId: string;
+        eventTime: string;
+        tracking: ClientTracking | null;
+        account: GoogleAdsAccount;
+        phone: string | null;
+        email?: string | null;
+        name?: string | null;
+    }) {
+        const conversionAction = getConversionActionResourceName(
+            event.google_conversion_name,
+            account
+        );
 
-    const clickId = getBestClickId(tracking);
+        const clickId = getBestClickId(tracking);
 
-    if (!clickId) {
+        if (!clickId) {
+            return null;
+        }
+
+        const userIdentifiers = buildUserIdentifiers({phone, email, name});
+
+        return removeNullValues({
+            conversionAction,
+            conversionDateTime: toGoogleAdsDateTime(eventTime),
+            orderId: `${sourceId}:${event.type}`,
+
+            ...clickId,
+
+            ...(userIdentifiers.length > 0 ? {userIdentifiers} : {}),
+        });
+    }
+
+    function getBestClickId(tracking: ClientTracking | null) {
+        if (tracking?.gclid) {
+            return {
+                gclid: tracking.gclid,
+            };
+        }
+
+        if (tracking?.gbraid) {
+            return {
+                gbraid: tracking.gbraid,
+            };
+        }
+
+        if (tracking?.wbraid) {
+            return {
+                wbraid: tracking.wbraid,
+            };
+        }
+
         return null;
     }
 
-    const userIdentifiers = buildUserIdentifiers({ phone, email, name });
+    function getBestClickIdName(tracking: ClientTracking | null) {
+        if (tracking?.gclid) return "gclid";
+        if (tracking?.gbraid) return "gbraid";
+        if (tracking?.wbraid) return "wbraid";
 
-    return removeNullValues({
-        conversionAction,
-        conversionDateTime: toGoogleAdsDateTime(eventTime),
-        orderId: `${sourceId}:${event.type}`,
-
-        ...clickId,
-
-        ...(userIdentifiers.length > 0 ? { userIdentifiers } : {}),
-    });
-}
-
-function getBestClickId(tracking: ClientTracking | null) {
-    if (tracking?.gclid) {
-        return {
-            gclid: tracking.gclid,
-        };
+        return null;
     }
 
-    if (tracking?.gbraid) {
-        return {
-            gbraid: tracking.gbraid,
-        };
-    }
-
-    if (tracking?.wbraid) {
-        return {
-            wbraid: tracking.wbraid,
-        };
-    }
-
-    return null;
-}
-
-function getBestClickIdName(tracking: ClientTracking | null) {
-    if (tracking?.gclid) return "gclid";
-    if (tracking?.gbraid) return "gbraid";
-    if (tracking?.wbraid) return "wbraid";
-
-    return null;
-}
-
-async function getClientTracking({
-                                     conversationId,
-                                     clientId,
-                                 }: {
-    conversationId: string | null;
-    clientId: string | null;
-}): Promise<ClientTracking | null> {
-    if (clientId) {
-        const { data } = await supabase
-            .from("clients")
-            .select(
-                `
+    async function getClientTracking({
+                                         conversationId,
+                                         clientId,
+                                     }: {
+        conversationId: string | null;
+        clientId: string | null;
+    }): Promise<ClientTracking | null> {
+        if (clientId) {
+            const {data} = await supabase
+                .from("clients")
+                .select(
+                    `
                 id,
                 gclid,
                 gbraid,
                 wbraid
             `
-            )
-            .eq("id", clientId)
+                )
+                .eq("id", clientId)
+                .maybeSingle();
+
+            return (data ?? null) as ClientTracking | null;
+        }
+
+        if (!conversationId) return null;
+
+        const {data: conversation} = await supabase
+            .from("conversations")
+            .select("client_id")
+            .eq("id", conversationId)
             .maybeSingle();
 
-        return (data ?? null) as ClientTracking | null;
-    }
+        if (!conversation?.client_id) return null;
 
-    if (!conversationId) return null;
-
-    const { data: conversation } = await supabase
-        .from("conversations")
-        .select("client_id")
-        .eq("id", conversationId)
-        .maybeSingle();
-
-    if (!conversation?.client_id) return null;
-
-    const { data } = await supabase
-        .from("clients")
-        .select(
-            `
+        const {data} = await supabase
+            .from("clients")
+            .select(
+                `
             id,
             gclid,
             gbraid,
             wbraid
         `
-        )
-        .eq("id", conversation.client_id)
-        .maybeSingle();
+            )
+            .eq("id", conversation.client_id)
+            .maybeSingle();
 
-    return (data ?? null) as ClientTracking | null;
-}
-
-async function getGoogleAccessToken() {
-    const response = await fetch("https://www.googleapis.com/oauth2/v3/token", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-            grant_type: "refresh_token",
-            client_id: googleAdsClientId!,
-            client_secret: googleAdsClientSecret!,
-            refresh_token: googleAdsRefreshToken!,
-        }),
-    });
-
-    const json = await response.json();
-
-    if (!response.ok) {
-        throw new Error(`Google OAuth error: ${JSON.stringify(json)}`);
+        return (data ?? null) as ClientTracking | null;
     }
 
-    return json.access_token as string;
-}
+    async function getGoogleAccessToken() {
+        const response = await fetch("https://www.googleapis.com/oauth2/v3/token", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+                grant_type: "refresh_token",
+                client_id: googleAdsClientId!,
+                client_secret: googleAdsClientSecret!,
+                refresh_token: googleAdsRefreshToken!,
+            }),
+        });
 
-async function createPendingGoogleAdEvents({
-                                               events,
-                                               conversation_id,
-                                               schedule_id,
-                                               sentAt,
-                                           }: {
-    events: DerivedAdEvent[];
-    conversation_id: string | null;
-    schedule_id: string | null;
-    sentAt: string;
-}) {
-    const { data, error } = await supabase
-        .from("ad_events")
-        .insert(
-            events.map((event) => ({
-                conversation_id,
-                schedule_id,
-                event_type: event.type,
-                platform: "Google Ads",
-                status: "pending",
-                event_date: sentAt,
-            }))
-        )
-        .select("id");
+        const json = await response.json();
 
-    if (error) {
-        throw error;
+        if (!response.ok) {
+            throw new Error(`Google OAuth error: ${JSON.stringify(json)}`);
+        }
+
+        return json.access_token as string;
     }
 
-    return (data ?? []).map((item) => item.id as string);
-}
+    async function createPendingGoogleAdEvents({
+                                                   events,
+                                                   conversation_id,
+                                                   schedule_id,
+                                                   sentAt,
+                                               }: {
+        events: DerivedAdEvent[];
+        conversation_id: string | null;
+        schedule_id: string | null;
+        sentAt: string;
+    }) {
+        const {data, error} = await supabase
+            .from("ad_events")
+            .insert(
+                events.map((event) => ({
+                    conversation_id,
+                    schedule_id,
+                    event_type: event.type,
+                    platform: "Google Ads",
+                    status: "pending",
+                    event_date: sentAt,
+                }))
+            )
+            .select("id");
 
-async function updateAdEventsStatus(
-    adEventIds: string[],
-    status: "pending" | "sent" | "failed"
-) {
-    if (adEventIds.length === 0) return;
+        if (error) {
+            throw error;
+        }
 
-    const { error } = await supabase
-        .from("ad_events")
-        .update({
-            status,
-            updated_at: new Date().toISOString(),
-        })
-        .in("id", adEventIds);
-
-    if (error) {
-        throw error;
+        return (data ?? []).map((item) => item.id as string);
     }
-}
 
-function getConversionActionResourceName(
-    conversionName: DerivedAdEvent["google_conversion_name"],
-    account: GoogleAdsAccount
-) {
-    const value =
-        conversionName === "qualified_lead"
-            ? account.qualifiedLeadConversionAction
-            : account.bookAppointmentConversionAction;
+    async function updateAdEventsStatus(
+        adEventIds: string[],
+        status: "pending" | "sent" | "failed"
+    ) {
+        if (adEventIds.length === 0) return;
 
-    if (!value) {
-        throw new Error(
-            `Missing Google Ads conversion action for ${account.label}: ${conversionName}`
+        const {error} = await supabase
+            .from("ad_events")
+            .update({
+                status,
+                updated_at: new Date().toISOString(),
+            })
+            .in("id", adEventIds);
+
+        if (error) {
+            throw error;
+        }
+    }
+
+    function getConversionActionResourceName(
+        conversionName: DerivedAdEvent["google_conversion_name"],
+        account: GoogleAdsAccount
+    ) {
+        const value =
+            conversionName === "qualified_lead"
+                ? account.qualifiedLeadConversionAction
+                : account.bookAppointmentConversionAction;
+
+        if (!value) {
+            throw new Error(
+                `Missing Google Ads conversion action for ${account.label}: ${conversionName}`
+            );
+        }
+
+        if (value.startsWith("customers/")) {
+            return value;
+        }
+
+        return `customers/${account.customerId}/conversionActions/${value}`;
+    }
+
+    function validateGoogleEnv() {
+        const missing = [
+            ["GOOGLE_ADS_CLIENT_ID", googleAdsClientId],
+            ["GOOGLE_ADS_CLIENT_SECRET", googleAdsClientSecret],
+            ["GOOGLE_ADS_REFRESH_TOKEN", googleAdsRefreshToken],
+            ["GOOGLE_ADS_DEVELOPER_TOKEN", googleAdsDeveloperToken],
+        ].filter(([, value]) => !value);
+
+        for (const account of googleAdsAccounts) {
+            if (!account.customerId) {
+                missing.push([`${account.key}.customerId`, account.customerId]);
+            }
+
+            if (!account.qualifiedLeadConversionAction) {
+                missing.push([
+                    `${account.key}.qualifiedLeadConversionAction`,
+                    account.qualifiedLeadConversionAction,
+                ]);
+            }
+
+            if (!account.bookAppointmentConversionAction) {
+                missing.push([
+                    `${account.key}.bookAppointmentConversionAction`,
+                    account.bookAppointmentConversionAction,
+                ]);
+            }
+        }
+
+        if (missing.length > 0) {
+            throw new Error(
+                `Missing Google Ads envs: ${missing
+                    .map(([key]) => key)
+                    .join(", ")}`
+            );
+        }
+    }
+
+    function toGoogleAdsDateTime(value: string) {
+        const date = new Date(value);
+
+        if (Number.isNaN(date.getTime())) {
+            return toGoogleAdsDateTime(new Date().toISOString());
+        }
+
+        const yyyy = date.getUTCFullYear();
+        const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+        const dd = String(date.getUTCDate()).padStart(2, "0");
+        const hh = String(date.getUTCHours()).padStart(2, "0");
+        const min = String(date.getUTCMinutes()).padStart(2, "0");
+        const ss = String(date.getUTCSeconds()).padStart(2, "0");
+
+        return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}+00:00`;
+    }
+
+    function removeNullValues<T extends Record<string, unknown>>(object: T) {
+        return Object.fromEntries(
+            Object.entries(object).filter(([, value]) => {
+                if (value === null || value === undefined || value === "") return false;
+
+                return true;
+            })
         );
     }
 
-    if (value.startsWith("customers/")) {
-        return value;
-    }
+    async function updateAdEventsParameters(
+        adEventIds: string[],
+        parameters: string[]
+    ) {
+        if (adEventIds.length === 0) return;
 
-    return `customers/${account.customerId}/conversionActions/${value}`;
-}
+        const {error} = await supabase
+            .from("ad_events")
+            .update({
+                parameters,
+                updated_at: new Date().toISOString(),
+            })
+            .in("id", adEventIds);
 
-function validateGoogleEnv() {
-    const missing = [
-        ["GOOGLE_ADS_CLIENT_ID", googleAdsClientId],
-        ["GOOGLE_ADS_CLIENT_SECRET", googleAdsClientSecret],
-        ["GOOGLE_ADS_REFRESH_TOKEN", googleAdsRefreshToken],
-        ["GOOGLE_ADS_DEVELOPER_TOKEN", googleAdsDeveloperToken],
-    ].filter(([, value]) => !value);
-
-    for (const account of googleAdsAccounts) {
-        if (!account.customerId) {
-            missing.push([`${account.key}.customerId`, account.customerId]);
-        }
-
-        if (!account.qualifiedLeadConversionAction) {
-            missing.push([
-                `${account.key}.qualifiedLeadConversionAction`,
-                account.qualifiedLeadConversionAction,
-            ]);
-        }
-
-        if (!account.bookAppointmentConversionAction) {
-            missing.push([
-                `${account.key}.bookAppointmentConversionAction`,
-                account.bookAppointmentConversionAction,
-            ]);
+        if (error) {
+            throw error;
         }
     }
 
-    if (missing.length > 0) {
-        throw new Error(
-            `Missing Google Ads envs: ${missing
-                .map(([key]) => key)
-                .join(", ")}`
-        );
+    function buildGoogleSentParameters(
+        tracking: ClientTracking | null,
+        {
+            phone,
+            email,
+            name,
+        }: {
+            phone: string | null;
+            email?: string | null;
+            name?: string | null;
+        }
+    ) {
+        return uniqueStrings([
+            "conversion_action",
+            "conversion_date_time",
+            "order_id",
+            "partial_failure",
+            "validate_only",
+
+            tracking?.gclid ? "gclid" : null,
+            tracking?.gbraid ? "gbraid" : null,
+            tracking?.wbraid ? "wbraid" : null,
+
+            phone ? "hashed_phone_number" : null,
+            email ? "hashed_email" : null,
+            name ? "hashed_name" : null,
+        ]);
     }
-}
 
-function normalizeCustomerId(value: string | undefined) {
-    return value?.replace(/\D/g, "") || undefined;
-}
-
-function toGoogleAdsDateTime(value: string) {
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-        return toGoogleAdsDateTime(new Date().toISOString());
-    }
-
-    const yyyy = date.getUTCFullYear();
-    const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(date.getUTCDate()).padStart(2, "0");
-    const hh = String(date.getUTCHours()).padStart(2, "0");
-    const min = String(date.getUTCMinutes()).padStart(2, "0");
-    const ss = String(date.getUTCSeconds()).padStart(2, "0");
-
-    return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}+00:00`;
-}
-
-function removeNullValues<T extends Record<string, unknown>>(object: T) {
-    return Object.fromEntries(
-        Object.entries(object).filter(([, value]) => {
-            if (value === null || value === undefined || value === "") return false;
-
-            return true;
-        })
-    );
-}
-
-async function updateAdEventsParameters(
-    adEventIds: string[],
-    parameters: string[]
-) {
-    if (adEventIds.length === 0) return;
-
-    const { error } = await supabase
-        .from("ad_events")
-        .update({
-            parameters,
-            updated_at: new Date().toISOString(),
-        })
-        .in("id", adEventIds);
-
-    if (error) {
-        throw error;
-    }
-}
-
-function buildGoogleSentParameters(
-    tracking: ClientTracking | null,
-    {
-        phone,
-        email,
-        name,
-    }: {
+    function buildUserIdentifiers({
+                                      phone,
+                                      email,
+                                      name,
+                                  }: {
         phone: string | null;
         email?: string | null;
         name?: string | null;
-    }
-) {
-    return uniqueStrings([
-        "conversion_action",
-        "conversion_date_time",
-        "order_id",
-        "partial_failure",
-        "validate_only",
+    }) {
+        const userIdentifiers: Array<Record<string, unknown>> = [];
 
-        tracking?.gclid ? "gclid" : null,
-        tracking?.gbraid ? "gbraid" : null,
-        tracking?.wbraid ? "wbraid" : null,
+        if (email) {
+            const hashedEmail = normalizeAndHashEmail(email);
 
-        phone ? "hashed_phone_number" : null,
-        email ? "hashed_email" : null,
-        name ? "hashed_name" : null,
-    ]);
-}
+            if (hashedEmail) {
+                userIdentifiers.push({
+                    hashedEmail,
+                    userIdentifierSource: "FIRST_PARTY",
+                });
+            }
+        }
 
-function buildUserIdentifiers({
-                                  phone,
-                                  email,
-                                  name,
-                              }: {
-    phone: string | null;
-    email?: string | null;
-    name?: string | null;
-}) {
-    const userIdentifiers: Array<Record<string, unknown>> = [];
+        if (phone) {
+            const normalizedPhone = normalizeBrazilPhoneToE164(phone);
 
-    if (email) {
-        const hashedEmail = normalizeAndHashEmail(email);
+            if (normalizedPhone) {
+                userIdentifiers.push({
+                    hashedPhoneNumber: sha256(normalizedPhone),
+                    userIdentifierSource: "FIRST_PARTY",
+                });
+            }
+        }
 
-        if (hashedEmail) {
+        const splitName = splitFullName(name);
+
+        if (splitName) {
             userIdentifiers.push({
-                hashedEmail,
+                addressInfo: {
+                    hashedFirstName: normalizeAndHash(splitName.firstName),
+                    hashedLastName: normalizeAndHash(splitName.lastName),
+                },
                 userIdentifierSource: "FIRST_PARTY",
             });
         }
+
+        return userIdentifiers;
     }
 
-    if (phone) {
-        const normalizedPhone = normalizeBrazilPhoneToE164(phone);
+    function splitFullName(name?: string | null) {
+        if (!name) return null;
 
-        if (normalizedPhone) {
-            userIdentifiers.push({
-                hashedPhoneNumber: sha256(normalizedPhone),
-                userIdentifierSource: "FIRST_PARTY",
-            });
+        const parts = name.trim().split(/\s+/).filter(Boolean);
+
+        if (parts.length < 2) return null;
+
+        return {
+            firstName: parts[0],
+            lastName: parts[parts.length - 1],
+        };
+    }
+
+    function normalizeAndHashEmail(email: string) {
+        const normalized = email.trim().toLowerCase();
+        const [localPart, domain] = normalized.split("@");
+
+        if (!localPart || !domain) return null;
+
+        if (domain === "gmail.com" || domain === "googlemail.com") {
+            return sha256(`${localPart.split("+")[0].replace(/\./g, "")}@${domain}`);
         }
+
+        return sha256(normalized);
     }
 
-    const splitName = splitFullName(name);
-
-    if (splitName) {
-        userIdentifiers.push({
-            addressInfo: {
-                hashedFirstName: normalizeAndHash(splitName.firstName),
-                hashedLastName: normalizeAndHash(splitName.lastName),
-            },
-            userIdentifierSource: "FIRST_PARTY",
-        });
+    function normalizeAndHash(value: string) {
+        return sha256(value.trim().toLowerCase().replace(/\s+/g, ""));
     }
 
-    return userIdentifiers;
-}
+    function normalizeBrazilPhoneToE164(phone: string) {
+        const digits = phone.replace(/\D/g, "");
 
-function splitFullName(name?: string | null) {
-    if (!name) return null;
+        if (!digits) return null;
+        if (digits.startsWith("55")) return `+${digits}`;
+        if (digits.length === 10 || digits.length === 11) return `+55${digits}`;
 
-    const parts = name.trim().split(/\s+/).filter(Boolean);
-
-    if (parts.length < 2) return null;
-
-    return {
-        firstName: parts[0],
-        lastName: parts[parts.length - 1],
-    };
-}
-
-function normalizeAndHashEmail(email: string) {
-    const normalized = email.trim().toLowerCase();
-    const [localPart, domain] = normalized.split("@");
-
-    if (!localPart || !domain) return null;
-
-    if (domain === "gmail.com" || domain === "googlemail.com") {
-        return sha256(`${localPart.split("+")[0].replace(/\./g, "")}@${domain}`);
+        return null;
     }
 
-    return sha256(normalized);
+    function sha256(value: string) {
+        return createHash("sha256").update(value).digest("hex");
+    }
+
+    function uniqueStrings(values: Array<string | null | undefined>) {
+        return Array.from(
+            new Set(values.filter((value): value is string => Boolean(value)))
+        );
+    }
 }
-
-function normalizeAndHash(value: string) {
-    return sha256(value.trim().toLowerCase().replace(/\s+/g, ""));
-}
-
-function normalizeBrazilPhoneToE164(phone: string) {
-    const digits = phone.replace(/\D/g, "");
-
-    if (!digits) return null;
-    if (digits.startsWith("55")) return `+${digits}`;
-    if (digits.length === 10 || digits.length === 11) return `+55${digits}`;
-
-    return null;
-}
-
-function sha256(value: string) {
-    return createHash("sha256").update(value).digest("hex");
-}
-
-function uniqueStrings(values: Array<string | null | undefined>) {
-    return Array.from(
-        new Set(values.filter((value): value is string => Boolean(value)))
-    );
+function normalizeCustomerId(value: string | undefined) {
+    return value?.replace(/\D/g, "") || undefined;
 }
