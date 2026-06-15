@@ -7,6 +7,12 @@ type PipelineStage = {
     name: string;
 };
 
+type Unit = {
+    id: string;
+    name: string;
+    active: boolean;
+};
+
 type PipelineHistoryMove = {
     client_id: string;
     from_stage_id: string | null;
@@ -26,6 +32,7 @@ export async function GET(request: Request) {
 
     const selectedPipelineId =
         searchParams.get("pipeline_id") ?? DEFAULT_PIPELINE_ID;
+    const unitIds = parseIds(searchParams.get("unit_ids"));
 
     const currentRange = getDateRange({
         days: Number(searchParams.get("days") ?? DEFAULT_DAYS),
@@ -38,9 +45,9 @@ export async function GET(request: Request) {
     const [
         { data: pipelines, error: pipelinesError },
         { data: stages, error: stagesError },
-        { data: clients, error: clientsError },
-        { data: currentHistory, error: currentHistoryError },
-        { data: previousHistory, error: previousHistoryError },
+        { data: units, error: unitsError },
+        clientsResult,
+        unitClientIdsResult,
     ] = await Promise.all([
         supabase
             .from("pipelines")
@@ -54,50 +61,22 @@ export async function GET(request: Request) {
             .order("position", { ascending: true }),
 
         supabase
-            .from("clients")
-            .select(
-                `
-                id,
-                name,
-                phone,
-                email,
-                external_contact_id,
-                first_seen_at,
-                last_interaction_at,
-                pipeline_stage_id,
-                utm_source,
-                utm_medium,
-                utm_campaign,
-                state,
-                country,
-                created_at,
-                updated_at
-                `
-            )
-            .not("pipeline_stage_id", "is", null)
-            .order("last_interaction_at", { ascending: false }),
+            .from("units")
+            .select("id, name, active")
+            .eq("active", true)
+            .order("name"),
 
-        supabase
-            .from("pipeline_history")
-            .select("client_id, from_stage_id, to_stage_id")
-            .eq("pipeline_id", selectedPipelineId)
-            .gte("moved_at", currentRange.start)
-            .lte("moved_at", currentRange.end),
+        getPipelineClients({ unitIds }),
 
-        supabase
-            .from("pipeline_history")
-            .select("client_id, from_stage_id, to_stage_id")
-            .eq("pipeline_id", selectedPipelineId)
-            .gte("moved_at", previousRange.start)
-            .lte("moved_at", previousRange.end),
+        getClientIdsForUnitFilter(unitIds),
     ]);
 
     if (
         pipelinesError ||
         stagesError ||
-        clientsError ||
-        currentHistoryError ||
-        previousHistoryError
+        unitsError ||
+        clientsResult.error ||
+        unitClientIdsResult.error
     ) {
         return NextResponse.json(
             {
@@ -105,9 +84,35 @@ export async function GET(request: Request) {
                 details: {
                     pipelinesError,
                     stagesError,
-                    clientsError,
-                    currentHistoryError,
-                    previousHistoryError,
+                    unitsError,
+                    clientsError: clientsResult.error,
+                    unitClientIdsError: unitClientIdsResult.error,
+                },
+            },
+            { status: 500 }
+        );
+    }
+
+    const [currentHistoryResult, previousHistoryResult] = await Promise.all([
+        getPipelineHistory({
+            pipelineId: selectedPipelineId,
+            dateRange: currentRange,
+            clientIds: unitClientIdsResult.clientIds,
+        }),
+        getPipelineHistory({
+            pipelineId: selectedPipelineId,
+            dateRange: previousRange,
+            clientIds: unitClientIdsResult.clientIds,
+        }),
+    ]);
+
+    if (currentHistoryResult.error || previousHistoryResult.error) {
+        return NextResponse.json(
+            {
+                error: "Failed to load pipeline history",
+                details: {
+                    currentHistoryError: currentHistoryResult.error,
+                    previousHistoryError: previousHistoryResult.error,
                 },
             },
             { status: 500 }
@@ -115,13 +120,14 @@ export async function GET(request: Request) {
     }
 
     const pipelineStages = (stages ?? []) as PipelineStage[];
-    const currentMoves = (currentHistory ?? []) as PipelineHistoryMove[];
-    const previousMoves = (previousHistory ?? []) as PipelineHistoryMove[];
+    const currentMoves = currentHistoryResult.history;
+    const previousMoves = previousHistoryResult.history;
 
     return NextResponse.json({
         pipelines: pipelines ?? [],
         stages: stages ?? [],
-        clients: clients ?? [],
+        units: units ?? [],
+        clients: clientsResult.clients,
 
         kpis: buildPipelineKpis({
             history: currentMoves,
@@ -135,6 +141,112 @@ export async function GET(request: Request) {
             pipelineId: selectedPipelineId,
         }),
     });
+}
+
+async function getPipelineClients({ unitIds }: { unitIds: string[] }) {
+    let query = supabase
+        .from("clients")
+        .select(
+            `
+            id,
+            name,
+            phone,
+            email,
+            external_contact_id,
+            first_seen_at,
+            last_interaction_at,
+            pipeline_stage_id,
+            unit_id,
+            utm_source,
+            utm_medium,
+            utm_campaign,
+            state,
+            country,
+            created_at,
+            updated_at
+            `
+        )
+        .not("pipeline_stage_id", "is", null)
+        .order("last_interaction_at", { ascending: false });
+
+    if (unitIds.length > 0) {
+        query = query.in("unit_id", unitIds);
+    }
+
+    const { data, error } = await query;
+
+    return {
+        clients: data ?? [],
+        error,
+    };
+}
+
+async function getClientIdsForUnitFilter(unitIds: string[]) {
+    if (unitIds.length === 0) {
+        return {
+            clientIds: null,
+            error: null,
+        };
+    }
+
+    const { data, error } = await supabase
+        .from("clients")
+        .select("id")
+        .in("unit_id", unitIds);
+
+    return {
+        clientIds: data?.map((client) => client.id) ?? [],
+        error,
+    };
+}
+
+async function getPipelineHistory({
+                                      pipelineId,
+                                      dateRange,
+                                      clientIds,
+                                  }: {
+    pipelineId: string;
+    dateRange: DateRange;
+    clientIds: string[] | null;
+}) {
+    if (clientIds && clientIds.length === 0) {
+        return {
+            history: [] as PipelineHistoryMove[],
+            error: null,
+        };
+    }
+
+    const history: PipelineHistoryMove[] = [];
+    const clientIdBatches = clientIds ? chunk(clientIds, 100) : [null];
+
+    for (const clientIdBatch of clientIdBatches) {
+        let query = supabase
+            .from("pipeline_history")
+            .select("client_id, from_stage_id, to_stage_id")
+            .eq("pipeline_id", pipelineId)
+            .gte("moved_at", dateRange.start)
+            .lte("moved_at", dateRange.end);
+
+        if (clientIdBatch) {
+            query = query.in("client_id", clientIdBatch);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+            return {
+                history,
+                error,
+            };
+        }
+
+        history.push(...((data ?? []) as PipelineHistoryMove[]));
+    }
+
+    return {
+        history,
+        error: null,
+    };
 }
 
 function buildPipelineKpis({
@@ -246,6 +358,26 @@ function percentage(value: number, total: number) {
     if (total === 0) return 0;
 
     return Math.round((value / total) * 1000) / 10;
+}
+
+
+function parseIds(value: string | null) {
+    if (!value) return [];
+
+    return value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < items.length; index += size) {
+        chunks.push(items.slice(index, index + size));
+    }
+
+    return chunks;
 }
 
 function normalize(value: string) {

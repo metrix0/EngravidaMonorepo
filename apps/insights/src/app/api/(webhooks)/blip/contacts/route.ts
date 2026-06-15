@@ -129,10 +129,10 @@ function parseBlipContact(payload: BlipContactPayload): ParsedBlipContact {
     );
 
     const email = emptyToNull(
-        payload.email.toLowerCase() ??
-        payload.extras?.email.toLowerCase() ??
-        payload.extras?.Email.toLowerCase() ??
-        payload.contact?.Email.toLowerCase() ??
+        payload.email ??
+        payload.extras?.email ??
+        payload.extras?.Email ??
+        payload.contact?.Email ??
         null
     );
 

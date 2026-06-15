@@ -7,7 +7,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
     ChevronRight,
-    Footprints,
+    Funnel,
     HelpCircle,
     LayoutDashboard,
     MessagesSquare,
@@ -52,7 +52,7 @@ const defaultItems: SidePanelItem[] = [
     { label: "Dashboard", href: "/", icon: <LayoutDashboard size={18} /> },
     { label: "Inbox", href: "/inbox", icon: <MessagesSquare size={18} /> },
     { label: "Clientes", href: "/clientes", icon: <Users size={18} /> },
-    { label: "Funil", href: "/funil", icon: <Footprints size={18} /> },
+    { label: "Funil", href: "/funil", icon: <Funnel size={18} /> },
 ];
 
 export default function SidePanelCRM({

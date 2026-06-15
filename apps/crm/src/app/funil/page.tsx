@@ -26,15 +26,21 @@ import {
 import SidePanelCRM from "../../components/layout/SidePanelCRM";
 
 import {
+    applyArrayParams,
     applyCalendarDateParams,
     type CalendarPresetValue,
     type DateRange,
 } from "@engravida/components/ui/CalendarButton";
-
 import { InitialsAvatar } from "@engravida/components/conversations/InitialsAvatar";
 import { Modal } from "@engravida/components/ui/Modal";
 
 type Pipeline = {
+    id: string;
+    name: string;
+    active: boolean;
+};
+
+type Unit = {
     id: string;
     name: string;
     active: boolean;
@@ -46,6 +52,7 @@ type AvailableClient = {
     phone: string | null;
     email: string | null;
     pipeline_stage_id: string | null;
+    unit_id: string | null;
     first_seen_at: string;
     last_interaction_at: string;
     utm_source: string | null;
@@ -74,6 +81,7 @@ type Client = {
     phone: string | null;
     email: string | null;
     pipeline_stage_id: string | null;
+    unit_id: string | null;
     last_interaction_at: string;
     utm_source: string | null;
     utm_medium: string | null;
@@ -91,6 +99,7 @@ type PipelineKpis = {
 type PipelineResponse = {
     pipelines: Pipeline[];
     stages: PipelineStage[];
+    units: Unit[];
     clients: Client[];
     kpis: PipelineKpis;
     previous_kpis: PipelineKpis;
@@ -108,6 +117,7 @@ const EMPTY_PIPELINE_KPIS: PipelineKpis = {
 export default function PipelinePage() {
     const [pipelines, setPipelines] = useState<Pipeline[]>([]);
     const [stages, setStages] = useState<PipelineStage[]>([]);
+    const [units, setUnits] = useState<Unit[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
     const [kpis, setKpis] = useState<PipelineKpis>(EMPTY_PIPELINE_KPIS);
     const [previousKpis, setPreviousKpis] =
@@ -130,6 +140,7 @@ export default function PipelinePage() {
     const [addingManyClients, setAddingManyClients] = useState(false);
     const [availableClientsPage, setAvailableClientsPage] = useState(1);
 
+    const [unitIds, setUnitIds] = useState<string[]>([]);
     const [pipelineIds, setPipelineIds] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
@@ -140,6 +151,13 @@ export default function PipelinePage() {
         null;
 
     const selectedPipelineId = pipelineIds[0] ?? defaultPipelineId;
+
+    const unitOptions = useMemo(() => {
+        return units.map((unit) => ({
+            label: unit.name,
+            value: unit.id,
+        }));
+    }, [units]);
 
     const loadPipelineData = useCallback(
         async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
@@ -153,6 +171,10 @@ export default function PipelinePage() {
                 params,
                 selectedRange,
                 selectedPreset: period,
+            });
+
+            applyArrayParams(params, {
+                unit_ids: unitIds,
             });
 
             params.set("pipeline_id", selectedPipelineId ?? DEFAULT_PIPELINE_ID);
@@ -174,6 +196,7 @@ export default function PipelinePage() {
 
             setPipelines(data.pipelines ?? []);
             setStages(data.stages ?? []);
+            setUnits(data.units ?? []);
             setClients(data.clients ?? []);
             setKpis(data.kpis ?? EMPTY_PIPELINE_KPIS);
             setPreviousKpis(data.previous_kpis ?? EMPTY_PIPELINE_KPIS);
@@ -196,6 +219,7 @@ export default function PipelinePage() {
         },
         [
             period,
+            unitIds,
             selectedRange.start,
             selectedRange.end,
             selectedPipelineId,
@@ -437,9 +461,20 @@ export default function PipelinePage() {
         setAddClientModalOpen(true);
         setAvailableClientsLoading(true);
 
-        const response = await fetch("/api/pipeline/available-clients", {
-            cache: "no-store",
+        const params = new URLSearchParams();
+
+        applyArrayParams(params, {
+            unit_ids: unitIds,
         });
+
+        const queryString = params.toString();
+
+        const response = await fetch(
+            `/api/pipeline/available-clients${queryString ? `?${queryString}` : ""}`,
+            {
+                cache: "no-store",
+            }
+        );
 
         if (!response.ok) {
             setAvailableClientsLoading(false);
@@ -687,7 +722,9 @@ export default function PipelinePage() {
                     <FilterButton
                         icon={<MapPin size={16} />}
                         label="Todas as unidades"
-                        options={[]}
+                        values={unitIds}
+                        onChange={setUnitIds}
+                        options={unitOptions}
                         widthClassName="w-[230px]"
                     />
                 </div>
