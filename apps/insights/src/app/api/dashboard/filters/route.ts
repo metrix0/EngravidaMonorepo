@@ -1,7 +1,7 @@
 // src/app/api/dashboard/filters/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@engravida/lib";
-import type { FilterEntity, FiltersResponse } from "@engravida/types";
+import type { FilterEntity, FilterOption, FiltersResponse } from "@engravida/types";
 
 type DashboardFilterEntity = FilterEntity | "tunnels" | "origins";
 
@@ -16,101 +16,91 @@ const allowedEntities: DashboardFilterEntity[] = [
 const NULL_FILTER_VALUE = "__NULL__";
 
 export async function GET(request: Request) {
-    const { searchParams } = new URL(request.url);
+    try {
+        const { searchParams } = new URL(request.url);
 
-    const entitiesParam = searchParams.get("entities");
+        const entitiesParam = searchParams.get("entities");
 
-    const requestedEntities = entitiesParam
-        ? entitiesParam
-            .split(",")
-            .map((entity) => entity.trim())
-            .filter((entity): entity is DashboardFilterEntity =>
-                allowedEntities.includes(entity as DashboardFilterEntity)
-            )
-        : allowedEntities;
+        const requestedEntities = entitiesParam
+            ? entitiesParam
+                .split(",")
+                .map((entity) => entity.trim())
+                .filter((entity): entity is DashboardFilterEntity =>
+                    allowedEntities.includes(entity as DashboardFilterEntity)
+                )
+            : allowedEntities;
 
-    const response: FiltersResponse & {
-        tunnels?: { label: string; value: string }[];
-        origins?: { label: string; value: string }[];
-    } = {};
+        const response: FiltersResponse = {};
 
-    await Promise.all(
-        requestedEntities.map(async (entity) => {
+        for (const entity of requestedEntities) {
             if (entity === "units") {
-                const { data, error } = await supabase
-                    .from("units")
-                    .select("id, name")
-                    .eq("active", true)
-                    .order("name");
-
-                if (error) throw error;
-
-                response.units =
-                    data?.map((unit) => ({
-                        label: unit.name,
-                        value: unit.id,
-                    })) ?? [];
+                response.units = await getActiveEntityOptions("units");
             }
 
             if (entity === "attendants") {
-                const { data, error } = await supabase
-                    .from("attendants")
-                    .select("id, name")
-                    .eq("active", true)
-                    .order("name");
-
-                if (error) throw error;
-
-                response.attendants =
-                    data?.map((attendant) => ({
-                        label: attendant.name,
-                        value: attendant.id,
-                    })) ?? [];
+                response.attendants = await getActiveEntityOptions("attendants");
             }
 
             if (entity === "services") {
-                const { data, error } = await supabase
-                    .from("services")
-                    .select("id, name")
-                    .eq("active", true)
-                    .order("name");
-
-                if (error) throw error;
-
-                response.services =
-                    data?.map((service) => ({
-                        label: service.name,
-                        value: service.id,
-                    })) ?? [];
+                response.services = await getActiveEntityOptions("services");
             }
 
             if (entity === "tunnels") {
-                const { data, error } = await supabase
-                    .from("conversations")
-                    .select("tunnel");
-
-                if (error) throw error;
-
-                response.tunnels = buildNullableTextOptions(
-                    (data ?? []).map((item) => item.tunnel)
-                );
+                response.tunnels = await getConversationTextOptions("tunnel");
             }
 
             if (entity === "origins") {
-                const { data, error } = await supabase
-                    .from("conversations")
-                    .select("origin");
-
-                if (error) throw error;
-
-                response.origins = buildNullableTextOptions(
-                    (data ?? []).map((item) => item.origin)
-                );
+                response.origins = await getConversationTextOptions("origin");
             }
-        })
-    );
+        }
 
-    return NextResponse.json(response);
+        return NextResponse.json(response);
+    } catch (error) {
+        console.error("[/api/dashboard/filters] Failed to load filters", error);
+
+        return NextResponse.json(
+            {
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : "Failed to load dashboard filters",
+            },
+            { status: 500 }
+        );
+    }
+}
+
+async function getActiveEntityOptions(
+    table: "units" | "attendants" | "services"
+): Promise<FilterOption[]> {
+    const { data, error } = await supabase
+        .from(table)
+        .select("id, name")
+        .eq("active", true)
+        .order("name");
+
+    if (error) throw error;
+
+    return (
+        data?.map((item) => ({
+            label: item.name,
+            value: item.id,
+        })) ?? []
+    );
+}
+
+async function getConversationTextOptions(
+    column: "tunnel" | "origin"
+): Promise<FilterOption[]> {
+    const { data, error } = await supabase
+        .from("conversations")
+        .select(column);
+
+    if (error) throw error;
+
+    return buildNullableTextOptions(
+        (data ?? []).map((item) => item[column] as string | null)
+    );
 }
 
 function buildNullableTextOptions(values: Array<string | null>) {

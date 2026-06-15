@@ -2,7 +2,7 @@
 
 "use client";
 
-import { BarChart3, MapPin } from "lucide-react";
+import {Eye, TrainTrack} from "lucide-react";
 
 import { FilterButton } from "../index";
 import type { FilterOption } from "../../types";
@@ -29,7 +29,7 @@ export function MainFilters({
     return (
         <>
             <FilterButton
-                icon={<BarChart3 size={16} />}
+                icon={<TrainTrack size={16} />}
                 label="Todos os túneis"
                 values={tunnelValues}
                 onChange={setTunnelValues}
@@ -37,7 +37,7 @@ export function MainFilters({
             />
 
             <FilterButton
-                icon={<MapPin size={16} />}
+                icon={<Eye size={16} />}
                 label="Todas as origens"
                 values={originValues}
                 onChange={setOriginValues}

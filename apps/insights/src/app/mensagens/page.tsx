@@ -4,6 +4,7 @@
 import {useEffect, useState} from "react";
 import {
     User,
+    MapPin,
     CircleAlert, ChevronRight,
 } from "lucide-react";
 import {ConversationPanel} from "@engravida/components/conversations/ConversationPanel";
@@ -61,6 +62,7 @@ const PAGE_SIZE = 50;
 export default function MessagesPage() {
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
 
+    const [unitIds, setUnitIds] = useState<string[]>([]);
     const [attendantIds, setAttendantIds] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [originValues, setOriginValues] = useState<string[]>([]);
@@ -98,7 +100,7 @@ export default function MessagesPage() {
         async function loadFilters() {
             try {
                 const response = await fetch(
-                    "/api/dashboard/filters?entities=attendants,tunnels,origins"
+                    "/api/dashboard/filters?entities=units,attendants,tunnels,origins"
                 );
                 const json: FiltersResponse = await response.json();
 
@@ -132,6 +134,7 @@ export default function MessagesPage() {
             }
 
             applyArrayParams(params, {
+                unit_ids: unitIds,
                 attendant_ids: attendantIds,
                 tunnels: tunnelValues,
                 origins: originValues,
@@ -168,6 +171,7 @@ export default function MessagesPage() {
         period,
         selectedRange,
         search,
+        unitIds,
         attendantIds,
         tunnelValues,
         originValues,
@@ -210,6 +214,15 @@ export default function MessagesPage() {
                 />
 
                 <div className="mb-8 flex justify-end gap-3">
+
+                    <FilterButton
+                        icon={<MapPin size={16}/>}
+                        label="Todas as unidades"
+                        values={unitIds}
+                        onChange={resetPageAndSet(setUnitIds)}
+                        options={filters?.units ?? []}
+                        widthClassName="w-[230px]"
+                    />
 
                     <FilterButton
                         icon={<User size={16}/>}

@@ -41,9 +41,6 @@ export async function GET(request: Request) {
         .order("started_at", { ascending: false })
         .limit(5000);
 
-    if (unitIds.length > 0) {
-        conversationsQuery = conversationsQuery.in("unit_id", unitIds);
-    }
 
     if (serviceIds.length > 0) {
         conversationsQuery = conversationsQuery.in("service_id", serviceIds);
@@ -149,6 +146,7 @@ export async function GET(request: Request) {
             result,
             notable: isNotable,
 
+            _unit_id: client?.unit_id ?? null,
             _conversation_goal: analysis?.conversation_goal ?? null,
             _result: result,
             _notable: isNotable,
@@ -164,6 +162,13 @@ export async function GET(request: Request) {
                 row.objective.toLowerCase().includes(search);
 
             if (!matchesSearch) return false;
+        }
+
+        if (
+            unitIds.length > 0 &&
+            !unitIds.includes(row._unit_id ?? "")
+        ) {
+            return false;
         }
 
         if (
@@ -194,7 +199,7 @@ export async function GET(request: Request) {
     const endIndex = startIndex + pageSize;
 
     const cleanRows = filteredRows.map(
-        ({ _conversation_goal, _result, _notable, ...row }) => row
+        ({ _unit_id, _conversation_goal, _result, _notable, ...row }) => row
     );
 
     return NextResponse.json({

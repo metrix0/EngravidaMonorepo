@@ -110,26 +110,27 @@ async function fetchAnalyses({
     tunnelValues: string[];
     originValues: string[];
 }) {
-    const needsAttributionFilter =
-        tunnelValues.length > 0 || originValues.length > 0;
+    const needsConversationFilter =
+        unitIds.length > 0 || tunnelValues.length > 0 || originValues.length > 0;
 
     let analysisIdsFromConversations: string[] | null = null;
 
-    if (needsAttributionFilter) {
-        const attributionMatch = await getAnalysisIdsMatchingTunnelOrigin({
+    if (needsConversationFilter) {
+        const conversationMatch = await getAnalysisIdsMatchingConversationFilters({
             dateRange,
+            unitIds,
             tunnelValues,
             originValues,
         });
 
-        if (attributionMatch.error) {
+        if (conversationMatch.error) {
             return {
                 analyses: [],
-                error: attributionMatch.error,
+                error: conversationMatch.error,
             };
         }
 
-        analysisIdsFromConversations = attributionMatch.analysisIds;
+        analysisIdsFromConversations = conversationMatch.analysisIds;
 
         if (analysisIdsFromConversations.length === 0) {
             return {
@@ -159,10 +160,6 @@ async function fetchAnalyses({
         .gte("started_at", dateRange.start.toISOString())
         .lte("started_at", dateRange.end.toISOString());
 
-    if (unitIds.length > 0) {
-        query = query.in("unit_id", unitIds);
-    }
-
     if (serviceIds.length > 0) {
         query = query.in("service_id", serviceIds);
     }
@@ -177,12 +174,20 @@ async function fetchAnalyses({
 
     const { data, error } = await query;
 
+    if (error) {
+        return {
+            analyses: [],
+            error,
+        };
+    }
+
+    const enriched = await enrichAnalysesWithClientUnits(data ?? []);
+
     return {
-        analyses: data ?? [],
-        error,
+        analyses: enriched.analyses,
+        error: enriched.error,
     };
 }
-
 
 function buildKpis(analyses: any[]) {
     const total = analyses.length;
@@ -491,21 +496,23 @@ function getPreviousDateRange(dateRange: { start: Date; end: Date }) {
 
 const NULL_FILTER_VALUE = "__NULL__";
 
-async function getAnalysisIdsMatchingTunnelOrigin({
-                                                      dateRange,
-                                                      tunnelValues,
-                                                      originValues,
-                                                  }: {
+async function getAnalysisIdsMatchingConversationFilters({
+                                                             dateRange,
+                                                             unitIds,
+                                                             tunnelValues,
+                                                             originValues,
+                                                         }: {
     dateRange: {
         start: Date;
         end: Date;
     };
+    unitIds: string[];
     tunnelValues: string[];
     originValues: string[];
 }) {
     const { data, error } = await supabase
         .from("conversations")
-        .select("conversation_analysis_id, tunnel, origin, started_at")
+        .select("conversation_analysis_id, client_id, tunnel, origin, started_at")
         .not("conversation_analysis_id", "is", null)
         .gte("started_at", dateRange.start.toISOString())
         .lte("started_at", dateRange.end.toISOString())
@@ -518,7 +525,31 @@ async function getAnalysisIdsMatchingTunnelOrigin({
         };
     }
 
-    const filtered = (data ?? []).filter((conversation) => {
+    const conversations = data ?? [];
+
+    const clientUnitMatch = unitIds.length > 0
+        ? await fetchClientUnitsByIds(
+            Array.from(
+                new Set(
+                    conversations
+                        .map((conversation) => conversation.client_id)
+                        .filter(Boolean)
+                )
+            )
+        )
+        : {
+            clientsById: new Map<string, { unit_id: string | null; unit_name: string | null }>(),
+            error: null,
+        };
+
+    if (clientUnitMatch.error) {
+        return {
+            analysisIds: [],
+            error: clientUnitMatch.error,
+        };
+    }
+
+    const filtered = conversations.filter((conversation) => {
         const tunnel = emptyToNull(conversation.tunnel);
         const origin = emptyToNull(conversation.origin);
 
@@ -530,7 +561,15 @@ async function getAnalysisIdsMatchingTunnelOrigin({
             originValues.length === 0 ||
             originValues.includes(origin ?? NULL_FILTER_VALUE);
 
-        return matchesTunnel && matchesOrigin;
+        const clientUnit = conversation.client_id
+            ? clientUnitMatch.clientsById.get(conversation.client_id)?.unit_id ?? null
+            : null;
+
+        const matchesUnit =
+            unitIds.length === 0 ||
+            Boolean(clientUnit && unitIds.includes(clientUnit));
+
+        return matchesTunnel && matchesOrigin && matchesUnit;
     });
 
     return {
@@ -545,10 +584,181 @@ async function getAnalysisIdsMatchingTunnelOrigin({
     };
 }
 
+async function enrichAnalysesWithClientUnits(analyses: any[]) {
+    if (analyses.length === 0) {
+        return {
+            analyses,
+            error: null,
+        };
+    }
+
+    const analysisIds = analyses.map((analysis) => analysis.id).filter(Boolean);
+    const conversationMatch = await fetchConversationsByAnalysisIds(analysisIds);
+
+    if (conversationMatch.error) {
+        return {
+            analyses,
+            error: conversationMatch.error,
+        };
+    }
+
+    const analysisClientById = new Map(
+        conversationMatch.conversations
+            .filter((conversation) => conversation.conversation_analysis_id && conversation.client_id)
+            .map((conversation) => [conversation.conversation_analysis_id, conversation.client_id])
+    );
+
+    const clientUnitMatch = await fetchClientUnitsByIds(
+        Array.from(new Set(Array.from(analysisClientById.values()).filter(Boolean)))
+    );
+
+    if (clientUnitMatch.error) {
+        return {
+            analyses,
+            error: clientUnitMatch.error,
+        };
+    }
+
+    return {
+        analyses: analyses.map((analysis) => {
+            const clientId = analysisClientById.get(analysis.id);
+            const clientUnit = clientId
+                ? clientUnitMatch.clientsById.get(clientId)
+                : null;
+
+            if (!clientUnit?.unit_id) {
+                return analysis;
+            }
+
+            return {
+                ...analysis,
+                unit_id: clientUnit.unit_id,
+                units: {
+                    id: clientUnit.unit_id,
+                    name: clientUnit.unit_name ?? "Sem unidade",
+                },
+            };
+        }),
+        error: null,
+    };
+}
+
+async function fetchConversationsByAnalysisIds(analysisIds: string[]) {
+    const conversations: Array<{
+        conversation_analysis_id: string | null;
+        client_id: string | null;
+    }> = [];
+
+    if (analysisIds.length === 0) {
+        return {
+            conversations,
+            error: null,
+        };
+    }
+
+    for (const batch of chunk(analysisIds, 100)) {
+        const { data, error } = await supabase
+            .from("conversations")
+            .select("conversation_analysis_id, client_id")
+            .in("conversation_analysis_id", batch);
+
+        if (error) {
+            return {
+                conversations,
+                error,
+            };
+        }
+
+        conversations.push(...(data ?? []));
+    }
+
+    return {
+        conversations,
+        error: null,
+    };
+}
+
+async function fetchClientUnitsByIds(clientIds: string[]) {
+    const clients: Array<{
+        id: string;
+        unit_id: string | null;
+    }> = [];
+
+    if (clientIds.length === 0) {
+        return {
+            clientsById: new Map<string, { unit_id: string | null; unit_name: string | null }>(),
+            error: null,
+        };
+    }
+
+    for (const batch of chunk(clientIds, 100)) {
+        const { data, error } = await supabase
+            .from("clients")
+            .select("id, unit_id")
+            .in("id", batch);
+
+        if (error) {
+            return {
+                clientsById: new Map<string, { unit_id: string | null; unit_name: string | null }>(),
+                error,
+            };
+        }
+
+        clients.push(...(data ?? []));
+    }
+
+    const unitIds = Array.from(
+        new Set(clients.map((client) => client.unit_id).filter(Boolean))
+    );
+
+    const unitsById = new Map<string, string>();
+
+    for (const batch of chunk(unitIds, 100)) {
+        const { data, error } = await supabase
+            .from("units")
+            .select("id, name")
+            .in("id", batch);
+
+        if (error) {
+            return {
+                clientsById: new Map<string, { unit_id: string | null; unit_name: string | null }>(),
+                error,
+            };
+        }
+
+        for (const unit of data ?? []) {
+            unitsById.set(unit.id, unit.name);
+        }
+    }
+
+    return {
+        clientsById: new Map(
+            clients.map((client) => [
+                client.id,
+                {
+                    unit_id: client.unit_id,
+                    unit_name: client.unit_id ? unitsById.get(client.unit_id) ?? null : null,
+                },
+            ])
+        ),
+        error: null,
+    };
+}
+
 function emptyToNull(value: unknown) {
     if (value === null || value === undefined) return null;
 
     const trimmed = String(value).trim();
 
     return trimmed ? trimmed : null;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < items.length; index += size) {
+        chunks.push(items.slice(index, index + size));
+    }
+
+    return chunks;
 }

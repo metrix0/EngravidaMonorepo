@@ -6,6 +6,7 @@ import {
     Calendar,
     Clock,
     HelpCircle,
+    MapPin,
     MessageCircle,
     ShieldCheck,
     Smile,
@@ -53,6 +54,7 @@ export default function ExecutiveDashboardPage() {
     const [data, setData] = useState<ExecutiveDashboardData | null>(null);
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
 
+    const [unitIds, setUnitIds] = useState<string[]>([]);
     const [attendantIds, setAttendantIds] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [originValues, setOriginValues] = useState<string[]>([]);
@@ -70,7 +72,7 @@ export default function ExecutiveDashboardPage() {
     useEffect(() => {
         async function loadFilters() {
             const response = await fetch(
-                "/api/dashboard/filters?entities=attendants,tunnels,origins"
+                "/api/dashboard/filters?entities=units,attendants,tunnels,origins"
             );
             const json: FiltersResponse = await response.json();
 
@@ -96,11 +98,12 @@ export default function ExecutiveDashboardPage() {
                 selectedPreset: period,
             });
 
-applyArrayParams(params, {
-    attendant_ids: attendantIds,
-    tunnels: tunnelValues,
-    origins: originValues,
-});
+            applyArrayParams(params, {
+                unit_ids: unitIds,
+                attendant_ids: attendantIds,
+                tunnels: tunnelValues,
+                origins: originValues,
+            });
 
             const response = await fetch(`/api/dashboard/executivo?${params.toString()}`);
             const json: ExecutiveDashboardData = await response.json();
@@ -112,6 +115,7 @@ applyArrayParams(params, {
 
         loadDashboard();
     }, [
+        unitIds,
         attendantIds,
         tunnelValues,
         originValues,
@@ -164,12 +168,22 @@ applyArrayParams(params, {
 
                 <div className="mb-8 flex justify-end gap-3">
                     <FilterButton
+                        icon={<MapPin size={16}/>}
+                        label="Todas as unidades"
+                        values={unitIds}
+                        onChange={setUnitIds}
+                        options={filters?.units ?? []}
+                        widthClassName="w-[230px]"
+                    />
+
+                    <FilterButton
                         icon={<User size={16}/>}
                         label="Todos os atendentes"
                         values={attendantIds}
                         onChange={setAttendantIds}
                         options={filters?.attendants ?? []}
                     />
+
                     <MainFilters
                         tunnels={filters?.tunnels}
                         origins={filters?.origins}
@@ -178,8 +192,6 @@ applyArrayParams(params, {
                         originValues={originValues}
                         setOriginValues={setOriginValues}
                     />
-
-
                 </div>
 
                 {isRefreshing ? (

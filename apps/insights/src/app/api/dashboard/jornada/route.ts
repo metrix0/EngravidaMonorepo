@@ -64,26 +64,27 @@ async function fetchAnalyses({
     tunnelValues: string[];
     originValues: string[];
 }) {
-    const needsAttributionFilter =
-        tunnelValues.length > 0 || originValues.length > 0;
+    const needsConversationFilter =
+        unitIds.length > 0 || tunnelValues.length > 0 || originValues.length > 0;
 
     let analysisIdsFromConversations: string[] | null = null;
 
-    if (needsAttributionFilter) {
-        const attributionMatch = await getAnalysisIdsMatchingTunnelOrigin({
+    if (needsConversationFilter) {
+        const conversationMatch = await getAnalysisIdsMatchingConversationFilters({
             dateRange,
+            unitIds,
             tunnelValues,
             originValues,
         });
 
-        if (attributionMatch.error) {
+        if (conversationMatch.error) {
             return {
                 analyses: [],
-                error: attributionMatch.error,
+                error: conversationMatch.error,
             };
         }
 
-        analysisIdsFromConversations = attributionMatch.analysisIds;
+        analysisIdsFromConversations = conversationMatch.analysisIds;
 
         if (analysisIdsFromConversations.length === 0) {
             return {
@@ -98,10 +99,6 @@ async function fetchAnalyses({
         .select("*")
         .gte("started_at", dateRange.start.toISOString())
         .lte("started_at", dateRange.end.toISOString());
-
-    if (unitIds.length > 0) {
-        query = query.in("unit_id", unitIds);
-    }
 
     if (serviceIds.length > 0) {
         query = query.in("service_id", serviceIds);
@@ -125,36 +122,69 @@ async function fetchAnalyses({
 
 const NULL_FILTER_VALUE = "__NULL__";
 
-async function getAnalysisIdsMatchingTunnelOrigin({
-                                                      dateRange,
-                                                      tunnelValues,
-                                                      originValues,
-                                                  }: {
+async function getAnalysisIdsMatchingConversationFilters({
+                                                             dateRange,
+                                                             unitIds,
+                                                             tunnelValues,
+                                                             originValues,
+                                                         }: {
     dateRange: {
         start: Date;
         end: Date;
     };
+    unitIds: string[];
     tunnelValues: string[];
     originValues: string[];
 }) {
-    const { data, error } = await supabase
+    const { data: conversations, error: conversationsError } = await supabase
         .from("conversations")
-        .select("conversation_analysis_id, tunnel, origin, started_at")
+        .select("conversation_analysis_id, client_id, tunnel, origin, started_at")
         .not("conversation_analysis_id", "is", null)
         .gte("started_at", dateRange.start.toISOString())
         .lte("started_at", dateRange.end.toISOString())
-        .limit(5000);
+        .limit(10000);
 
-    if (error) {
+    if (conversationsError) {
         return {
             analysisIds: [],
-            error,
+            error: conversationsError,
         };
     }
 
-    const filtered = (data ?? []).filter((conversation) => {
+    let clientsById = new Map<string, { id: string; unit_id: string | null }>();
+
+    if (unitIds.length > 0) {
+        const clientIds = Array.from(
+            new Set(
+                (conversations ?? [])
+                    .map((conversation) => conversation.client_id)
+                    .filter(Boolean)
+            )
+        );
+
+        const clientsResult = await fetchClientsByIds(clientIds);
+
+        if (clientsResult.error) {
+            return {
+                analysisIds: [],
+                error: clientsResult.error,
+            };
+        }
+
+        clientsById = new Map(
+            (clientsResult.data ?? []).map((client) => [client.id, client])
+        );
+    }
+
+    const filtered = (conversations ?? []).filter((conversation) => {
         const tunnel = emptyToNull(conversation.tunnel);
         const origin = emptyToNull(conversation.origin);
+
+        const matchesUnit =
+            unitIds.length === 0 ||
+            unitIds.includes(
+                clientsById.get(conversation.client_id)?.unit_id ?? ""
+            );
 
         const matchesTunnel =
             tunnelValues.length === 0 ||
@@ -164,7 +194,7 @@ async function getAnalysisIdsMatchingTunnelOrigin({
             originValues.length === 0 ||
             originValues.includes(origin ?? NULL_FILTER_VALUE);
 
-        return matchesTunnel && matchesOrigin;
+        return matchesUnit && matchesTunnel && matchesOrigin;
     });
 
     return {
@@ -179,12 +209,45 @@ async function getAnalysisIdsMatchingTunnelOrigin({
     };
 }
 
+async function fetchClientsByIds(ids: string[]) {
+    const rows: { id: string; unit_id: string | null }[] = [];
+
+    if (ids.length === 0) {
+        return { data: rows, error: null };
+    }
+
+    for (const batch of chunk(ids, 100)) {
+        const { data, error } = await supabase
+            .from("clients")
+            .select("id, unit_id")
+            .in("id", batch);
+
+        if (error) {
+            return { data: rows, error };
+        }
+
+        rows.push(...(data ?? []));
+    }
+
+    return { data: rows, error: null };
+}
+
 function emptyToNull(value: unknown) {
     if (value === null || value === undefined) return null;
 
     const trimmed = String(value).trim();
 
     return trimmed ? trimmed : null;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < items.length; index += size) {
+        chunks.push(items.slice(index, index + size));
+    }
+
+    return chunks;
 }
 
 function buildJourneyFunnel(analyses: any[]) {

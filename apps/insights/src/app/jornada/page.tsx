@@ -4,6 +4,7 @@
 import {useEffect, useState} from "react";
 import {
     HelpCircle,
+    MapPin,
     User,
 } from "lucide-react";
 import {
@@ -77,6 +78,7 @@ export default function JourneyPage() {
     const [filters, setFilters] = useState<FiltersResponse | null>(null);
     const [data, setData] = useState<JourneyDashboardData | null>(null);
 
+    const [unitIds, setUnitIds] = useState<string[]>([]);
     const [attendantIds, setAttendantIds] = useState<string[]>([]);
     const [tunnelValues, setTunnelValues] = useState<string[]>([]);
     const [originValues, setOriginValues] = useState<string[]>([]);
@@ -95,7 +97,7 @@ export default function JourneyPage() {
         async function loadFilters() {
             try {
                 const response = await fetch(
-                    "/api/dashboard/filters?entities=attendants,tunnels,origins"
+                    "/api/dashboard/filters?entities=units,attendants,tunnels,origins"
                 );
                 const json: FiltersResponse = await response.json();
 
@@ -124,11 +126,12 @@ export default function JourneyPage() {
                 selectedPreset: period,
             });
 
-applyArrayParams(params, {
-    attendant_ids: attendantIds,
-    tunnels: tunnelValues,
-    origins: originValues,
-});
+            applyArrayParams(params, {
+                unit_ids: unitIds,
+                attendant_ids: attendantIds,
+                tunnels: tunnelValues,
+                origins: originValues,
+            });
 
             try {
                 const response = await fetch(
@@ -164,6 +167,7 @@ applyArrayParams(params, {
 
         loadData();
     }, [
+        unitIds,
         attendantIds,
         tunnelValues,
         originValues,
@@ -213,6 +217,15 @@ applyArrayParams(params, {
 
 
                     <FilterButton
+                        icon={<MapPin size={16}/>}
+                        label="Todas as unidades"
+                        values={unitIds}
+                        onChange={setUnitIds}
+                        options={filters?.units ?? []}
+                        widthClassName="w-[230px]"
+                    />
+
+                    <FilterButton
                         icon={<User size={16}/>}
                         label="Todos os atendentes"
                         values={attendantIds}
@@ -222,14 +235,14 @@ applyArrayParams(params, {
 
 
 
-<MainFilters
-    tunnels={filters?.tunnels}
-    origins={filters?.origins}
-    tunnelValues={tunnelValues}
-    setTunnelValues={setTunnelValues}
-    originValues={originValues}
-    setOriginValues={setOriginValues}
-/>
+                    <MainFilters
+                        tunnels={filters?.tunnels}
+                        origins={filters?.origins}
+                        tunnelValues={tunnelValues}
+                        setTunnelValues={setTunnelValues}
+                        originValues={originValues}
+                        setOriginValues={setOriginValues}
+                    />
                 </div>
 
                 {isRefreshing ? (
