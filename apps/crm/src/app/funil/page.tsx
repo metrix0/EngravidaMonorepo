@@ -1,18 +1,16 @@
 "use client";
 
-import {memo, useCallback, useEffect, useMemo, useState} from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
     CalendarCheck,
+    ExternalLink,
     Filter,
     MapPin,
     Search,
-    TrendingUp,
-    User,
-    Users, X,
     Trash2,
-    XCircle,
+    TrendingUp,
+    Users,
 } from "lucide-react";
-
 
 import {
     AdvancedFilterButton,
@@ -21,18 +19,20 @@ import {
     FilterButton,
     HorizontalScroller,
     KpiCard,
-    Skeleton,
     Pagination,
+    Skeleton,
 } from "@engravida/components";
 
 import SidePanelCRM from "../../components/layout/SidePanelCRM";
 
-import type {
-    CalendarPresetValue,
-    DateRange,
+import {
+    applyCalendarDateParams,
+    type CalendarPresetValue,
+    type DateRange,
 } from "@engravida/components/ui/CalendarButton";
-import {InitialsAvatar} from "@engravida/components/conversations/InitialsAvatar";
-import {Modal} from "@engravida/components/ui/Modal";
+
+import { InitialsAvatar } from "@engravida/components/conversations/InitialsAvatar";
+import { Modal } from "@engravida/components/ui/Modal";
 
 type Pipeline = {
     id: string;
@@ -81,19 +81,40 @@ type Client = {
     updated_at: string;
 };
 
+type PipelineKpis = {
+    pipeline_entries: number;
+    evaluations_done: number;
+    procedures_scheduled: number;
+    procedure_conversion_rate: number;
+};
+
 type PipelineResponse = {
     pipelines: Pipeline[];
     stages: PipelineStage[];
     clients: Client[];
+    kpis: PipelineKpis;
+    previous_kpis: PipelineKpis;
+};
+
+const DEFAULT_PIPELINE_ID = "22222222-2222-2222-2222-222222222222";
+
+const EMPTY_PIPELINE_KPIS: PipelineKpis = {
+    pipeline_entries: 0,
+    evaluations_done: 0,
+    procedures_scheduled: 0,
+    procedure_conversion_rate: 0,
 };
 
 export default function PipelinePage() {
     const [pipelines, setPipelines] = useState<Pipeline[]>([]);
     const [stages, setStages] = useState<PipelineStage[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
+    const [kpis, setKpis] = useState<PipelineKpis>(EMPTY_PIPELINE_KPIS);
+    const [previousKpis, setPreviousKpis] =
+        useState<PipelineKpis>(EMPTY_PIPELINE_KPIS);
 
     const [loading, setLoading] = useState(true);
-    const [period, setPeriod] = useState<CalendarPresetValue | null>("yesterday");
+    const [period, setPeriod] = useState<CalendarPresetValue | null>("30");
     const [selectedRange, setSelectedRange] = useState<DateRange>({
         start: null,
         end: null,
@@ -109,153 +130,81 @@ export default function PipelinePage() {
     const [addingManyClients, setAddingManyClients] = useState(false);
     const [availableClientsPage, setAvailableClientsPage] = useState(1);
 
-
     const [pipelineIds, setPipelineIds] = useState<string[]>([]);
     const [sourceValues, setSourceValues] = useState<string[]>([]);
     const [search, setSearch] = useState("");
 
-    const selectedPipelineId = pipelineIds[0] ?? pipelines[0]?.id ?? null;
+    const defaultPipelineId =
+        pipelines.find((pipeline) => pipeline.id === DEFAULT_PIPELINE_ID)?.id ??
+        pipelines[0]?.id ??
+        null;
 
-    const toggleSelectedClient = useCallback((clientId: string) => {
-        setSelectedClientIds((current) =>
-            current.includes(clientId)
-                ? current.filter((id) => id !== clientId)
-                : [...current, clientId]
-        );
-    }, []);
+    const selectedPipelineId = pipelineIds[0] ?? defaultPipelineId;
 
-    const clearSelectedClients = useCallback(() => {
-        setSelectedClientIds([]);
-    }, []);
+    const loadPipelineData = useCallback(
+        async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
+            if (showLoading) {
+                setLoading(true);
+            }
 
-    async function addSelectedClientsToPipeline() {
-        if (!selectedPipelineId || !firstStageInSelectedPipeline) return;
-        if (selectedClientIds.length === 0) return;
+            const params = new URLSearchParams();
 
-        const selectedClients = availableClients.filter((client) =>
-            selectedClientIds.includes(client.id)
-        );
+            applyCalendarDateParams({
+                params,
+                selectedRange,
+                selectedPreset: period,
+            });
 
-        setAddingManyClients(true);
+            params.set("pipeline_id", selectedPipelineId ?? DEFAULT_PIPELINE_ID);
 
-        for (const client of selectedClients) {
-            const alreadyInCurrentPipeline = visibleStageIds.has(
-                client.pipeline_stage_id ?? ""
-            );
-
-            if (alreadyInCurrentPipeline) continue;
-
-            const response = await fetch("/api/pipeline/client-stage", {
-                method: "PATCH",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    client_id: client.id,
-                    pipeline_id: selectedPipelineId,
-                    from_stage_id: client.pipeline_stage_id,
-                    to_stage_id: firstStageInSelectedPipeline.id,
-                    moved_by_attendant_id: null,
-                }),
+            const response = await fetch(`/api/pipeline?${params.toString()}`, {
+                cache: "no-store",
             });
 
             if (!response.ok) {
-                console.error("Failed to add selected client", {
-                    status: response.status,
-                    statusText: response.statusText,
-                    body: await readJsonSafely(response),
-                    client,
-                });
-                continue;
-            }
-
-            const updatedClient = {
-                ...client,
-                pipeline_stage_id: firstStageInSelectedPipeline.id,
-                updated_at: new Date().toISOString(),
-            };
-
-            setAvailableClients((current) =>
-                current.map((item) => (item.id === client.id ? updatedClient : item))
-            );
-
-            setClients((current) => {
-                const exists = current.some((item) => item.id === client.id);
-
-                if (exists) {
-                    return current.map((item) =>
-                        item.id === client.id ? updatedClient : item
-                    );
+                if (showLoading) {
+                    setLoading(false);
                 }
 
-                return [updatedClient, ...current];
-            });
-        }
+                console.error(await response.json());
+                return;
+            }
 
-        setAddingManyClients(false);
-        closeAddClientModal();
-    }
+            const data = (await response.json()) as PipelineResponse;
 
-    function closeAddClientModal() {
-        setAddClientModalOpen(false);
-    }
+            setPipelines(data.pipelines ?? []);
+            setStages(data.stages ?? []);
+            setClients(data.clients ?? []);
+            setKpis(data.kpis ?? EMPTY_PIPELINE_KPIS);
+            setPreviousKpis(data.previous_kpis ?? EMPTY_PIPELINE_KPIS);
 
-    function resetAddClientModal() {
-        setClientSearch("");
-        clearSelectedClients();
-        setAvailableClientsPage(1);
-    }
+            const defaultPipeline =
+                data.pipelines?.find((pipeline) => pipeline.id === DEFAULT_PIPELINE_ID) ??
+                data.pipelines?.[0];
 
-    async function openAddClientModal() {
-        setAddClientModalOpen(true);
-        setAvailableClientsLoading(true);
+            const selectedPipelineStillExists = data.pipelines?.some(
+                (pipeline) => pipeline.id === selectedPipelineId
+            );
 
-        const response = await fetch("/api/pipeline/available-clients", {
-            cache: "no-store",
-        });
+            if (!selectedPipelineStillExists && defaultPipeline?.id) {
+                setPipelineIds([defaultPipeline.id]);
+            }
 
-        if (!response.ok) {
-            setAvailableClientsLoading(false);
-            console.error(await response.json());
-            return;
-        }
-
-        const data = (await response.json()) as AvailableClientsResponse;
-
-        setAvailableClients(data.clients ?? []);
-        setAvailableStages(data.stages ?? []);
-        setAvailableClientsLoading(false);
-    }
-
-    async function load() {
-        setLoading(true);
-
-        const response = await fetch("/api/pipeline", {
-            cache: "no-store",
-        });
-
-        if (!response.ok) {
-            setLoading(false);
-            console.error(await response.json());
-            return;
-        }
-
-        const data = (await response.json()) as PipelineResponse;
-
-        setPipelines(data.pipelines ?? []);
-        setStages(data.stages ?? []);
-        setClients(data.clients ?? []);
-
-        if (data.pipelines?.[0]?.id) {
-            setPipelineIds([data.pipelines[0].id]);
-        }
-
-        setLoading(false);
-    }
+            if (showLoading) {
+                setLoading(false);
+            }
+        },
+        [
+            period,
+            selectedRange.start,
+            selectedRange.end,
+            selectedPipelineId,
+        ]
+    );
 
     useEffect(() => {
-        load();
-    }, []);
+        loadPipelineData();
+    }, [loadPipelineData]);
 
     const visibleStages = useMemo(() => {
         if (!selectedPipelineId) return [];
@@ -339,22 +288,171 @@ export default function PipelinePage() {
 
     const totalClients = filteredClients.length;
 
-    const scheduledStage = visibleStages.find((stage) =>
-        normalize(stage.name).includes("agend")
-    );
+    function getStageNameById(stageId: string | null) {
+        if (!stageId) return "";
 
-    const lostStage = visibleStages.find((stage) =>
-        normalize(stage.name).includes("perdid")
-    );
+        return normalize(stages.find((stage) => stage.id === stageId)?.name ?? "");
+    }
 
-    const scheduledCount = scheduledStage
-        ? clientsByStage[scheduledStage.id]?.length ?? 0
-        : 0;
+    function calculateProcedureConversionRate(nextKpis: PipelineKpis) {
+        if (nextKpis.evaluations_done === 0) return 0;
 
-    const lostCount = lostStage ? clientsByStage[lostStage.id]?.length ?? 0 : 0;
+        return Math.round(
+            (nextKpis.procedures_scheduled / nextKpis.evaluations_done) * 1000
+        ) / 10;
+    }
 
-    const advancementRate =
-        totalClients > 0 ? Math.round((scheduledCount / totalClients) * 100) : 0;
+    function incrementLiveKpis({
+                                   fromStageId,
+                                   toStageId,
+                               }: {
+        fromStageId: string | null;
+        toStageId: string | null;
+    }) {
+        const fromStageName = getStageNameById(fromStageId);
+        const toStageName = getStageNameById(toStageId);
+
+        setKpis((current) => {
+            const next = { ...current };
+
+            if (!fromStageId && toStageId) {
+                next.pipeline_entries += 1;
+            }
+
+            if (toStageName.includes("avaliacao realizada")) {
+                next.evaluations_done += 1;
+            }
+
+            if (
+                fromStageName.includes("avaliacao realizada") &&
+                toStageName.includes("procedimento agendado")
+            ) {
+                next.procedures_scheduled += 1;
+            }
+
+            next.procedure_conversion_rate = calculateProcedureConversionRate(next);
+
+            return next;
+        });
+    }
+
+    const toggleSelectedClient = useCallback((clientId: string) => {
+        setSelectedClientIds((current) =>
+            current.includes(clientId)
+                ? current.filter((id) => id !== clientId)
+                : [...current, clientId]
+        );
+    }, []);
+
+    const clearSelectedClients = useCallback(() => {
+        setSelectedClientIds([]);
+    }, []);
+
+    async function addSelectedClientsToPipeline() {
+        if (!selectedPipelineId || !firstStageInSelectedPipeline) return;
+        if (selectedClientIds.length === 0) return;
+
+        const selectedClients = availableClients.filter((client) =>
+            selectedClientIds.includes(client.id)
+        );
+
+        setAddingManyClients(true);
+
+        for (const client of selectedClients) {
+            const alreadyInCurrentPipeline = visibleStageIds.has(
+                client.pipeline_stage_id ?? ""
+            );
+
+            if (alreadyInCurrentPipeline) continue;
+
+            const response = await fetch("/api/pipeline/client-stage", {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    client_id: client.id,
+                    pipeline_id: selectedPipelineId,
+                    from_stage_id: client.pipeline_stage_id,
+                    to_stage_id: firstStageInSelectedPipeline.id,
+                    moved_by_attendant_id: null,
+                }),
+            });
+
+            if (!response.ok) {
+                console.error("Failed to add selected client", {
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: await readJsonSafely(response),
+                    client,
+                });
+                continue;
+            }
+
+            const updatedClient = {
+                ...client,
+                pipeline_stage_id: firstStageInSelectedPipeline.id,
+                updated_at: new Date().toISOString(),
+            };
+
+            setAvailableClients((current) =>
+                current.map((item) => (item.id === client.id ? updatedClient : item))
+            );
+
+            setClients((current) => {
+                const exists = current.some((item) => item.id === client.id);
+
+                if (exists) {
+                    return current.map((item) =>
+                        item.id === client.id ? updatedClient : item
+                    );
+                }
+
+                return [updatedClient, ...current];
+            });
+
+            incrementLiveKpis({
+                fromStageId: client.pipeline_stage_id,
+                toStageId: firstStageInSelectedPipeline.id,
+            });
+        }
+
+        setAddingManyClients(false);
+        closeAddClientModal();
+
+        await loadPipelineData({ showLoading: false });
+    }
+
+    function closeAddClientModal() {
+        setAddClientModalOpen(false);
+    }
+
+    function resetAddClientModal() {
+        setClientSearch("");
+        clearSelectedClients();
+        setAvailableClientsPage(1);
+    }
+
+    async function openAddClientModal() {
+        setAddClientModalOpen(true);
+        setAvailableClientsLoading(true);
+
+        const response = await fetch("/api/pipeline/available-clients", {
+            cache: "no-store",
+        });
+
+        if (!response.ok) {
+            setAvailableClientsLoading(false);
+            console.error(await response.json());
+            return;
+        }
+
+        const data = (await response.json()) as AvailableClientsResponse;
+
+        setAvailableClients(data.clients ?? []);
+        setAvailableStages(data.stages ?? []);
+        setAvailableClientsLoading(false);
+    }
 
     async function moveClient(clientId: string, toStageId: string) {
         if (!selectedPipelineId) return;
@@ -382,6 +480,11 @@ export default function PipelinePage() {
             )
         );
 
+        incrementLiveKpis({
+            fromStageId,
+            toStageId,
+        });
+
         const response = await fetch("/api/pipeline/client-stage", {
             method: "PATCH",
             headers: {
@@ -398,8 +501,16 @@ export default function PipelinePage() {
 
         if (!response.ok) {
             setClients(previousClients);
+            await loadPipelineData({ showLoading: false });
             console.error(await response.json());
+            return;
         }
+
+        await loadPipelineData({ showLoading: false });
+    }
+
+    function openClientProfile(clientId: string) {
+        window.location.href = `/clientes?client_id=${clientId}`;
     }
 
     async function removeClientFromPipeline(clientId: string) {
@@ -441,7 +552,10 @@ export default function PipelinePage() {
         if (!response.ok) {
             setClients(previousClients);
             console.error(await response.json());
+            return;
         }
+
+        await loadPipelineData({ showLoading: false });
     }
 
     async function addClientToPipeline(client: AvailableClient) {
@@ -502,26 +616,33 @@ export default function PipelinePage() {
             return [updatedClient, ...current];
         });
 
+        incrementLiveKpis({
+            fromStageId: client.pipeline_stage_id,
+            toStageId: firstStageInSelectedPipeline.id,
+        });
+
         setAddingClientId(null);
         closeAddClientModal();
+
+        await loadPipelineData({ showLoading: false });
     }
 
     if (loading) {
         return (
             <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
-                <SidePanelCRM/>
+                <SidePanelCRM />
 
                 <section className="min-w-0 flex-1 px-8 py-8">
                     <div className="mb-8">
-                        <Skeleton className="h-10 w-48"/>
-                        <Skeleton className="mt-3 h-5 w-96"/>
+                        <Skeleton className="h-10 w-48" />
+                        <Skeleton className="mt-3 h-5 w-96" />
                     </div>
 
                     <div className="grid grid-cols-4 gap-5">
-                        <Skeleton className="h-32 rounded-2xl"/>
-                        <Skeleton className="h-32 rounded-2xl"/>
-                        <Skeleton className="h-32 rounded-2xl"/>
-                        <Skeleton className="h-32 rounded-2xl"/>
+                        <Skeleton className="h-32 rounded-2xl" />
+                        <Skeleton className="h-32 rounded-2xl" />
+                        <Skeleton className="h-32 rounded-2xl" />
+                        <Skeleton className="h-32 rounded-2xl" />
                     </div>
                 </section>
             </main>
@@ -530,11 +651,11 @@ export default function PipelinePage() {
 
     return (
         <main className="flex h-screen w-screen overflow-y-scroll bg-white text-slate-900">
-            <SidePanelCRM/>
+            <SidePanelCRM />
 
             <section className="min-w-0 flex-1 px-8 py-8">
                 <DashboardHeader
-                    title="Pipeline"
+                    title="Funil"
                     description="Acompanhe e mova clientes pelo funil comercial"
                     period={period}
                     setPeriod={setPeriod}
@@ -543,28 +664,28 @@ export default function PipelinePage() {
                 />
 
                 <div className="mb-8 flex justify-end gap-3">
-                    <FilterButton
-                        label={selectedPipeline?.name ?? "Funil Comercial Principal"}
-                        values={pipelineIds}
-                        onChange={(values) => {
-                            setPipelineIds(values.slice(0, 1));
-                        }}
-                        options={pipelines.map((pipeline) => ({
-                            label: pipeline.name,
-                            value: pipeline.id,
-                        }))}
-                        widthClassName="w-[260px]"
-                    />
+                    {/*<FilterButton*/}
+                    {/*    label={selectedPipeline?.name ?? "Funil Comercial Principal"}*/}
+                    {/*    values={pipelineIds}*/}
+                    {/*    onChange={(values) => {*/}
+                    {/*        setPipelineIds(values.slice(0, 1));*/}
+                    {/*    }}*/}
+                    {/*    options={pipelines.map((pipeline) => ({*/}
+                    {/*        label: pipeline.name,*/}
+                    {/*        value: pipeline.id,*/}
+                    {/*    }))}*/}
+                    {/*    widthClassName="w-[260px]"*/}
+                    {/*/>*/}
+
+                    {/*<FilterButton*/}
+                    {/*    icon={<User size={16}/>}*/}
+                    {/*    label="Todos os atendentes"*/}
+                    {/*    options={[]}*/}
+                    {/*    widthClassName="w-[230px]"*/}
+                    {/*/>*/}
 
                     <FilterButton
-                        icon={<User size={16}/>}
-                        label="Todos os atendentes"
-                        options={[]}
-                        widthClassName="w-[230px]"
-                    />
-
-                    <FilterButton
-                        icon={<MapPin size={16}/>}
+                        icon={<MapPin size={16} />}
                         label="Todas as unidades"
                         options={[]}
                         widthClassName="w-[230px]"
@@ -575,42 +696,42 @@ export default function PipelinePage() {
                     <HorizontalScroller scrollAmount={400}>
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<Users size={26}/>}
-                                label="Clientes no funil"
-                                currentValue={totalClients}
-                                previousValue={null}
+                                icon={<Users size={26} />}
+                                label="Entradas no funil"
+                                currentValue={kpis.pipeline_entries}
+                                previousValue={previousKpis.pipeline_entries}
                                 color="purple"
                             />
                         </div>
 
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<CalendarCheck size={26}/>}
-                                label="Agendados"
-                                currentValue={scheduledCount}
-                                previousValue={null}
+                                icon={<CalendarCheck size={26} />}
+                                label="Avaliações realizadas"
+                                currentValue={kpis.evaluations_done}
+                                previousValue={previousKpis.evaluations_done}
                                 color="green"
                             />
                         </div>
 
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<TrendingUp size={26}/>}
-                                label="Taxa de avanço"
-                                currentValue={advancementRate}
-                                previousValue={null}
+                                icon={<TrendingUp size={26} />}
+                                label="Conversão p/ procedimento"
+                                currentValue={kpis.procedure_conversion_rate}
+                                previousValue={previousKpis.procedure_conversion_rate}
                                 suffix="%"
-                                color="blue"
+                                color="pink"
                             />
                         </div>
 
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<XCircle size={26}/>}
-                                label="Perdidos"
-                                currentValue={lostCount}
-                                previousValue={null}
-                                color="pink"
+                                icon={<TrendingUp size={26} />}
+                                label="Procedimentos agendados"
+                                currentValue={kpis.procedures_scheduled}
+                                previousValue={previousKpis.procedures_scheduled}
+                                color="blue"
                             />
                         </div>
                     </HorizontalScroller>
@@ -620,7 +741,7 @@ export default function PipelinePage() {
                     <div className="mb-5 flex items-center justify-between gap-6">
                         <div>
                             <h2 className="text-xl font-bold text-text">
-                                {selectedPipeline?.name ?? "Funil Comercial Principal"}
+                                {selectedPipeline?.name ?? "Funil FIV"}
                             </h2>
 
                             <p className="mt-1 text-sm text-muted">
@@ -630,9 +751,8 @@ export default function PipelinePage() {
                         </div>
 
                         <div className="flex items-center gap-3">
-                            <div
-                                className="flex h-11 w-[360px] items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm">
-                                <Search size={17} className="text-muted"/>
+                            <div className="flex h-11 w-[360px] items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-sm">
+                                <Search size={17} className="text-muted" />
 
                                 <input
                                     value={search}
@@ -643,7 +763,7 @@ export default function PipelinePage() {
                             </div>
 
                             <AdvancedFilterButton
-                                icon={<Filter size={16}/>}
+                                icon={<Filter size={16} />}
                                 sections={[
                                     {
                                         id: "source",
@@ -651,10 +771,10 @@ export default function PipelinePage() {
                                         values: sourceValues,
                                         onChange: setSourceValues,
                                         options: [
-                                            {label: "Meta Ads", value: "meta_ads"},
-                                            {label: "Instagram", value: "instagram"},
-                                            {label: "Google", value: "google"},
-                                            {label: "Direto", value: "direct"},
+                                            { label: "Meta Ads", value: "meta_ads" },
+                                            { label: "Instagram", value: "instagram" },
+                                            { label: "Google", value: "google" },
+                                            { label: "Direto", value: "direct" },
                                         ],
                                     },
                                 ]}
@@ -682,6 +802,7 @@ export default function PipelinePage() {
                                         clients={stageClients}
                                         onMoveClient={moveClient}
                                         onRemoveClient={removeClientFromPipeline}
+                                        onOpenClientProfile={openClientProfile}
                                     />
                                 );
                             })}
@@ -689,6 +810,7 @@ export default function PipelinePage() {
                     </div>
                 </section>
             </section>
+
             <AddClientToPipelineModal
                 open={addClientModalOpen}
                 clients={filteredAvailableClients}
@@ -718,11 +840,13 @@ function PipelineColumn({
                             clients,
                             onMoveClient,
                             onRemoveClient,
+                            onOpenClientProfile,
                         }: {
     stage: PipelineStage;
     clients: Client[];
     onMoveClient: (clientId: string, stageId: string) => void;
     onRemoveClient: (clientId: string) => void;
+    onOpenClientProfile: (clientId: string) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
 
@@ -742,7 +866,7 @@ function PipelineColumn({
                 <div className="flex min-w-0 items-center gap-2">
                     <span
                         className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{backgroundColor: stage.color ?? "#64748b"}}
+                        style={{ backgroundColor: stage.color ?? "#64748b" }}
                     />
 
                     <h3 className="truncate text-sm font-bold text-text">
@@ -761,6 +885,7 @@ function PipelineColumn({
                         key={client.id}
                         client={client}
                         onRemoveClient={onRemoveClient}
+                        onOpenClientProfile={onOpenClientProfile}
                     />
                 ))}
             </div>
@@ -783,23 +908,39 @@ function PipelineColumn({
 function PipelineClientCard({
                                 client,
                                 onRemoveClient,
+                                onOpenClientProfile,
                             }: {
     client: Client;
     onRemoveClient: (clientId: string) => void;
+    onOpenClientProfile: (clientId: string) => void;
 }) {
     return (
         <Card className="group relative rounded-xl p-3">
-            <button
-                type="button"
-                title="Remover do pipeline"
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onRemoveClient(client.id);
-                }}
-                className="absolute bottom-3 left-3 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-red-50 text-slate-500  opacity-0 shadow-sm transition hover:text-red duration-200 group-hover:opacity-100"
-            >
-                <Trash2 size={14}/>
-            </button>
+            <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                <button
+                    type="button"
+                    title="Remover do pipeline"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onRemoveClient(client.id);
+                    }}
+                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-red-50 text-slate-500 shadow-sm transition hover:bg-soft-red hover:text-red"
+                >
+                    <Trash2 size={14} />
+                </button>
+
+                <button
+                    type="button"
+                    title="Abrir perfil do cliente"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenClientProfile(client.id);
+                    }}
+                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-slate-100 text-slate-500 shadow-sm transition hover:bg-slate-100 hover:text-slate-700"
+                >
+                    <ExternalLink size={14} />
+                </button>
+            </div>
 
             <div
                 draggable
@@ -808,7 +949,7 @@ function PipelineClientCard({
                 }}
                 className="flex cursor-grab gap-3 active:cursor-grabbing"
             >
-                <InitialsAvatar name={client.name ?? "Cliente"}/>
+                <InitialsAvatar name={client.name ?? "Cliente"} />
 
                 <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-bold text-text">
@@ -840,9 +981,10 @@ function sourceLabel(source: string | null) {
         facebook: "Meta Ads",
         instagram: "Instagram",
         google: "Google",
+        direct: "Direto",
     };
 
-    return map[source ?? ""] ?? source ?? "";
+    return map[source ?? "direct"] ?? source ?? "Direto";
 }
 
 function timeAgo(date: string) {
@@ -1063,7 +1205,7 @@ function AddClientToPipelineModal({
                             "h-10 rounded-xl px-5 text-sm font-semibold shadow-sm transition",
                             selectedCount === 0 || addingManyClients
                                 ? "cursor-not-allowed bg-slate-100 text-slate-400"
-                                : "bg-brand text-white hover:opacity-90 cursor-pointer",
+                                : "cursor-pointer bg-brand text-white hover:opacity-90",
                         ].join(" ")}
                     >
                         {addingManyClients
@@ -1107,7 +1249,7 @@ const SelectableClientRow = memo(function SelectableClientRow({
                     ? "bg-slate-50 opacity-55"
                     : "hover:bg-slate-50",
             ].join(" ")}
-            style={{gridTemplateColumns}}
+            style={{ gridTemplateColumns }}
         >
             <div>
                 <button
@@ -1121,7 +1263,7 @@ const SelectableClientRow = memo(function SelectableClientRow({
                             : "border-slate-300 bg-white text-transparent hover:border-brand",
                         alreadyInCurrentPipeline
                             ? "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400"
-                            : "bg-brand text-white shadow-sm hover:opacity-90 cursor-pointer",
+                            : "cursor-pointer bg-brand text-white shadow-sm hover:opacity-90",
                     ].join(" ")}
                 >
                     ✓
@@ -1130,7 +1272,7 @@ const SelectableClientRow = memo(function SelectableClientRow({
 
             <div className="min-w-0 pr-3">
                 <div className="flex min-w-0 items-center gap-3">
-                    <InitialsAvatar name={client.name ?? "Cliente"}/>
+                    <InitialsAvatar name={client.name ?? "Cliente"} />
 
                     <div className="min-w-0">
                         <div className="truncate text-sm font-bold text-text">
@@ -1155,23 +1297,19 @@ const SelectableClientRow = memo(function SelectableClientRow({
 
             <div className="min-w-0 pr-3">
                 {client.utm_source !== null && (
-                    <span
-                        className="inline-flex max-w-full truncate rounded-md bg-blue-soft px-2 py-1 text-xs font-bold text-blue">
-                    {sourceLabel(client.utm_source)}
-                </span>
-                )
-                }
-
+                    <span className="inline-flex max-w-full truncate rounded-md bg-blue-soft px-2 py-1 text-xs font-bold text-blue">
+                        {sourceLabel(client.utm_source)}
+                    </span>
+                )}
             </div>
 
             <div className="min-w-0 pr-3">
-                <span
-                    className=" max-w-full inline-flex truncate rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600">
+                <span className="inline-flex max-w-full truncate rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600">
                     {currentStageName}
                 </span>
             </div>
 
-            <div className="whitespace-nowrap text-sm justify-center flex text-slate-700">
+            <div className="flex justify-center whitespace-nowrap text-sm text-slate-700">
                 {timeAgo(client.last_interaction_at)}
             </div>
 
@@ -1188,7 +1326,7 @@ const SelectableClientRow = memo(function SelectableClientRow({
                         "h-9 whitespace-nowrap rounded-xl px-3 text-sm font-semibold transition",
                         alreadyInCurrentPipeline
                             ? "cursor-not-allowed bg-slate-100 text-slate-400"
-                            : "bg-brand text-white shadow-sm hover:opacity-90 cursor-pointer",
+                            : "cursor-pointer bg-brand text-white shadow-sm hover:opacity-90",
                     ].join(" ")}
                 >
                     {alreadyInCurrentPipeline
