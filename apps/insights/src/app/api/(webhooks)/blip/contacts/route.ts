@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 
 import { supabase } from "@engravida/lib";
+import {resolveClosestUnitIdFromPhone} from "@/lib/units/resolveClosestUnitFromPhone";
 
 type BlipContactPayload = {
     identity?: string;
@@ -128,10 +129,10 @@ function parseBlipContact(payload: BlipContactPayload): ParsedBlipContact {
     );
 
     const email = emptyToNull(
-        payload.email ??
-        payload.extras?.email ??
-        payload.extras?.Email ??
-        payload.contact?.Email ??
+        payload.email.toLowerCase() ??
+        payload.extras?.email.toLowerCase() ??
+        payload.extras?.Email.toLowerCase() ??
+        payload.contact?.Email.toLowerCase() ??
         null
     );
 
@@ -194,7 +195,9 @@ async function findClientIdForContact(parsedContact: ParsedBlipContact) {
 }
 
 async function updateClient(clientId: string, parsedContact: ParsedBlipContact) {
-    const updateData: Record<string, string> = {
+    const unitId = await resolveClosestUnitIdFromPhone(parsedContact.phone);
+
+    const updateData: Record<string, string | null> = {
         updated_at: new Date().toISOString(),
     };
 
@@ -214,6 +217,10 @@ async function updateClient(clientId: string, parsedContact: ParsedBlipContact) 
         updateData.email = parsedContact.email;
     }
 
+    if (unitId) {
+        updateData.unit_id = unitId;
+    }
+
     const { error } = await supabase
         .from("clients")
         .update(updateData)
@@ -225,6 +232,8 @@ async function updateClient(clientId: string, parsedContact: ParsedBlipContact) 
 async function createClient(parsedContact: ParsedBlipContact) {
     const now = new Date().toISOString();
 
+    const unitId = await resolveClosestUnitIdFromPhone(parsedContact.phone);
+
     const { error } = await supabase
         .from("clients")
         .insert({
@@ -235,6 +244,7 @@ async function createClient(parsedContact: ParsedBlipContact) {
             email: parsedContact.email,
 
             external_contact_id: parsedContact.external_contact_id,
+            unit_id: unitId,
 
             first_seen_at: parsedContact.received_at,
             last_interaction_at: parsedContact.received_at,
