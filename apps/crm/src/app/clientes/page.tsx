@@ -4,12 +4,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
     CalendarCheck,
+    ChevronRight,
     Clock,
     Filter,
     MapPin,
     Search,
     User,
-    UserPlus,
     Users,
 } from "lucide-react";
 
@@ -37,6 +37,11 @@ type PipelineStage = {
     name: string;
     position: number;
     color: string | null;
+    pipeline_name?: string | null;
+    pipeline?: {
+        id: string;
+        name: string | null;
+    } | null;
 };
 
 type Client = {
@@ -56,6 +61,11 @@ type Client = {
 type ClientsResponse = {
     clients: Client[];
     stages: PipelineStage[];
+};
+
+type BadgeTone = {
+    bg: string;
+    text: string;
 };
 
 const CLIENTS_PER_PAGE = 100;
@@ -233,12 +243,10 @@ export default function ClientesPage() {
         filteredClients.length
     );
 
-    const newLeads = filteredClients.filter((client) => {
-        const stage = client.pipeline_stage_id
-            ? stageById.get(client.pipeline_stage_id)
-            : null;
+    const withoutFunnel = filteredClients.filter((client) => {
+        if (!client.pipeline_stage_id) return true;
 
-        return normalize(stage?.name ?? "").includes("novo");
+        return !stageById.has(client.pipeline_stage_id);
     }).length;
 
     const scheduled = filteredClients.filter((client) => {
@@ -294,7 +302,7 @@ export default function ClientesPage() {
                 <div className="mb-8 flex justify-end gap-3">
                     <FilterButton
                         icon={<User size={16} />}
-                        label="Todos os atendentes"
+                        label="Todos os últimos atendentes"
                         options={[]}
                         widthClassName="w-[230px]"
                     />
@@ -320,7 +328,6 @@ export default function ClientesPage() {
                             { label: "Meta Ads", value: "meta_ads" },
                             { label: "Instagram", value: "instagram" },
                             { label: "Google", value: "google" },
-                            { label: "Direto", value: "direct" },
                         ]}
                         widthClassName="w-[230px]"
                     />
@@ -340,9 +347,9 @@ export default function ClientesPage() {
 
                         <div className="min-w-[310px]">
                             <KpiCard
-                                icon={<UserPlus size={26} />}
-                                label="Novos leads"
-                                currentValue={newLeads}
+                                icon={<Filter size={26} />}
+                                label="Sem funil"
+                                currentValue={withoutFunnel}
                                 previousValue={null}
                                 color="green"
                             />
@@ -410,18 +417,12 @@ export default function ClientesPage() {
                                             { label: "Meta Ads", value: "meta_ads" },
                                             { label: "Instagram", value: "instagram" },
                                             { label: "Google", value: "google" },
-                                            { label: "Direto", value: "direct" },
                                         ],
                                     },
                                 ]}
                             />
 
-                            <button
-                                type="button"
-                                className="flex h-11 cursor-pointer items-center gap-2 rounded-xl bg-brand px-5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
-                            >
-                                + Cliente
-                            </button>
+
                         </div>
                     </div>
 
@@ -429,14 +430,13 @@ export default function ClientesPage() {
                         <table className="w-full table-fixed border-collapse text-left">
                             <thead>
                             <tr className="h-12 bg-slate-50 text-xs font-bold text-muted">
-                                <th className="w-[260px] px-6">Cliente</th>
-                                <th className="w-[170px] px-4">Telefone</th>
-                                <th className="w-[170px] px-4">Estágio</th>
-                                <th className="w-[145px] px-4">Origem</th>
-                                <th className="w-[170px] px-4">Última interação</th>
-                                <th className="w-[190px] px-4">Atendente</th>
-                                <th className="w-[140px] px-4">Status</th>
-                                <th className="w-[50px] px-4" />
+                                <th className="w-[24%] px-6">Cliente</th>
+                                <th className="w-[14%] px-4">Telefone</th>
+                                <th className="w-[14%] px-4">Funil</th>
+                                <th className="w-[12%] px-4">Origem</th>
+                                <th className="w-[15%] px-4">Última interação</th>
+                                <th className="w-[17%] px-4">Último Atendente</th>
+                                <th className="w-8 px-2" />
                             </tr>
                             </thead>
 
@@ -469,7 +469,7 @@ export default function ClientesPage() {
                                 onPageChange={setCurrentPage}
                             />
                         </div>
-                    : <div className={"pb-12"}></div>
+                        : <div className={"pb-12"}></div>
                     }
                 </section>
             </section>
@@ -484,10 +484,13 @@ function ClientRow({
     client: Client;
     stage: PipelineStage | null;
 }) {
-    const status = getClientStatus(stage?.name ?? null);
+    const funnelName = getFunnelName(stage);
 
     return (
-        <tr className="h-[76px] border-b border-slate-100 text-sm text-text">
+        <tr
+            onClick={() => openClientProfile(client.id)}
+            className="group h-[76px] cursor-pointer border-b border-slate-100 text-sm text-text transition-colors hover:bg-selection/80"
+        >
             <td className="px-6">
                 <div className="flex items-center gap-3">
                     <InitialsAvatar name={client.name ?? "Cliente"} />
@@ -506,17 +509,17 @@ function ClientRow({
 
             <td className="px-4 text-slate-700">{client.phone ?? "Sem telefone"}</td>
 
-            <td className="px-4">
+            <td className="px-4" title={funnelName}>
                 <Chip
-                    label={stage?.name ?? "Sem estágio"}
-                    variant={getStageVariant(stage?.name ?? null)}
+                    label={stage?.name ?? "—"}
+                    tone={getStageVariant(stage?.name ?? null)}
                 />
             </td>
 
             <td className="px-4">
                 <Chip
                     label={sourceLabel(client.utm_source)}
-                    variant={getSourceVariant(client.utm_source)}
+                    tone={getSourceVariant(client.utm_source)}
                 />
             </td>
 
@@ -528,37 +531,46 @@ function ClientRow({
                 {client.attendant_name ?? "—"}
             </td>
 
-            <td className="px-4">
-                <Chip label={status.label} variant={status.variant} />
+            <td className="px-2 text-right">
+                <div className="flex justify-end">
+                    <ChevronRight
+                        size={16}
+                        strokeWidth={2.4}
+                        className="text-slate-400 opacity-70 transition-all group-hover:translate-x-0.5 group-hover:text-slate-700 group-hover:opacity-100"
+                    />
+                </div>
             </td>
-
-            <td className="px-4 text-xl font-bold text-slate-400">›</td>
         </tr>
+    );
+}
+
+function openClientProfile(clientId: string) {
+    window.location.href = `/clientes?client_id=${clientId}`;
+}
+
+function getFunnelName(stage: PipelineStage | null) {
+    if (!stage) return "Sem funil";
+
+    return (
+        stage.pipeline_name ??
+        stage.pipeline?.name ??
+        "Funil não informado"
     );
 }
 
 function Chip({
                   label,
-                  variant,
+                  tone,
               }: {
     label: string;
-    variant: "blue" | "green" | "purple" | "pink" | "yellow" | "red" | "gray";
+    tone: BadgeTone;
 }) {
-    const classes: Record<typeof variant, string> = {
-        blue: "bg-blue-soft text-blue",
-        green: "bg-green-soft text-green",
-        purple: "bg-purple-soft text-purple",
-        pink: "bg-pink-soft text-pink",
-        yellow: "bg-yellow-soft text-yellow",
-        red: "bg-red-soft text-red",
-        gray: "bg-slate-100 text-slate-500",
-    };
-
     return (
         <span
             className={[
-                "inline-flex rounded-md px-2.5 py-1 text-xs font-bold",
-                classes[variant],
+                "inline-flex max-w-full truncate rounded-md px-2.5 py-1 text-xs font-bold",
+                tone.bg,
+                tone.text,
             ].join(" ")}
         >
             {label}
@@ -572,63 +584,61 @@ function sourceLabel(source: string | null) {
         facebook: "Meta Ads",
         instagram: "Instagram",
         google: "Google",
-        direct: "Direto",
     };
 
-    return map[source ?? "direct"] ?? source ?? "Direto";
+    return map[source] ?? source ?? "—";
 }
 
-function getSourceVariant(source: string | null) {
-    const normalized = source ?? "direct";
+function getSourceVariant(source: string | null): BadgeTone {
+    const normalized = normalize(source ?? "direct");
 
-    if (normalized === "meta_ads" || normalized === "facebook") return "purple";
-    if (normalized === "google") return "blue";
-    if (normalized === "instagram") return "pink";
+    if (normalized.includes("meta_ads") || normalized.includes("facebook")) {
+        return { bg: "bg-soft-purple", text: "text-purple" };
+    }
 
-    return "gray";
+    if (normalized.includes("google")) {
+        return { bg: "bg-soft-blue", text: "text-blue" };
+    }
+
+    if (normalized.includes("instagram")) {
+        return { bg: "bg-soft-red", text: "text-pink" };
+    }
+
+    return { bg: "bg-slate-100", text: "text-slate-500" };
 }
 
-function getStageVariant(stageName: string | null) {
+function getStageVariant(stageName: string | null): BadgeTone {
     const stage = normalize(stageName ?? "");
 
-    if (stage.includes("novo")) return "blue";
-    if (stage.includes("tentando")) return "yellow";
-    if (stage.includes("atendimento")) return "purple";
-    if (stage.includes("interessado")) return "yellow";
-    if (stage.includes("agend")) return "green";
-    if (stage.includes("compareceu")) return "green";
-    if (stage.includes("perdid")) return "red";
-
-    return "gray";
-}
-
-function getClientStatus(stageName: string | null): {
-    label: string;
-    variant: "blue" | "green" | "purple" | "pink" | "yellow" | "red" | "gray";
-} {
-    const stage = normalize(stageName ?? "");
-
-    if (stage.includes("perdid")) {
-        return { label: "Perdido", variant: "red" };
-    }
-
-    if (stage.includes("compareceu")) {
-        return { label: "Convertido", variant: "green" };
-    }
-
-    if (stage.includes("agend")) {
-        return { label: "Agendado", variant: "green" };
-    }
-
-    if (stage.includes("interessado")) {
-        return { label: "Quente", variant: "red" };
+    if (stage.includes("novo")) {
+        return { bg: "bg-soft-blue", text: "text-blue" };
     }
 
     if (stage.includes("tentando")) {
-        return { label: "Aguardando", variant: "yellow" };
+        return { bg: "bg-soft-yellow", text: "text-yellow" };
     }
 
-    return { label: "Ativo", variant: "green" };
+    if (stage.includes("atendimento")) {
+        return { bg: "bg-soft-purple", text: "text-purple" };
+    }
+
+    if (stage.includes("interessado")) {
+        return { bg: "bg-soft-yellow", text: "text-yellow" };
+    }
+
+    if (stage.includes("agend")) {
+        return { bg: "bg-soft-blue", text: "text-blue" };
+    }
+
+    if (stage.includes("realizad") || stage.includes("compareceu")) {
+        return { bg: "bg-soft-green", text: "text-green" };
+    }
+
+    if (stage.includes("perdid")) {
+        return { bg: "bg-soft-red", text: "text-red" };
+    }
+
+    return { bg: "bg-slate-100", text: "text-slate-500" };
 }
 
 function timeAgo(date: string) {

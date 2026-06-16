@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "predev": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item -Recurse -Force 'apps/insights/.next','apps/crm/.next' -ErrorAction SilentlyContinue\"",
     "dev": "turbo dev",
     "dev:insights": "turbo dev --filter=insights",
     "dev:crm": "turbo dev --filter=crm",
