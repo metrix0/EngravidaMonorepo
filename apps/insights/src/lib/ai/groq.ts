@@ -1,4 +1,4 @@
-// src/lib/ai/groq.ts
+// apps/insights/src/lib/ai/groq.ts
 import OpenAI from "openai";
 
 const groqApiKeys = [

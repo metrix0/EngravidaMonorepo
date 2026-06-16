@@ -1,3 +1,4 @@
+// apps/crm/src/lib/inbox/useInboxRealtime.ts
 "use client";
 
 import { useEffect } from "react";

@@ -1,4 +1,4 @@
-// src/lib/ai/conversationAnalysisSchema.ts
+// apps/insights/src/lib/ai/conversationAnalysisSchema.ts
 import { z } from "zod";
 
 export const conversationAnalysisSchema = z.object({

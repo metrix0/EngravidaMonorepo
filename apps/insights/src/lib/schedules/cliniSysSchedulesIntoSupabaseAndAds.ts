@@ -1,4 +1,4 @@
-// src/lib/schedules/cliniSysSchedulesIntoSupabaseAndAds.ts
+// apps/insights/src/lib/schedules/cliniSysSchedulesIntoSupabaseAndAds.ts
 import crypto from "crypto";
 
 import { supabase } from "@engravida/lib";

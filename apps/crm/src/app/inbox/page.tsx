@@ -1,4 +1,4 @@
-// src/app/inbox/page.tsx
+// apps/crm/src/app/inbox/page.tsx
 "use client";
 
 import {useCallback, useEffect, useState} from "react";

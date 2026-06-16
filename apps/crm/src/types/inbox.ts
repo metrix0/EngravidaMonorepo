@@ -1,3 +1,4 @@
+// apps/crm/src/types/inbox.ts
 export type InboxStatus = "open" | "pending" | "closed";
 
 export type InboxChannel = "WhatsApp" | "Instagram" | "Facebook";

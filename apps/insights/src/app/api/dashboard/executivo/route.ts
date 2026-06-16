@@ -1,4 +1,4 @@
-// src/app/api/dashboard/executivo/route.ts
+// apps/insights/src/app/api/dashboard/executivo/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@engravida/lib";
 import type { ExecutiveDashboardData } from "@engravida/types";

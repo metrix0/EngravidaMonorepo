@@ -1,4 +1,4 @@
-// src/components/layout/SidePanel.tsx
+// apps/insights/src/components/layout/SidePanel.tsx
 "use client";
 
 import type { ReactNode } from "react";

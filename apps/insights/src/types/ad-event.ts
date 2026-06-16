@@ -1,4 +1,4 @@
-// src/types/ad-event.ts
+// apps/insights/src/types/ad-event.ts
 
 export const AD_PLATFORMS = [
     "Meta Ads",

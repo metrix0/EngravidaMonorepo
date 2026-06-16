@@ -1,4 +1,4 @@
-// src/lib/ads/meta/sendMetaEvents.ts
+// apps/insights/src/lib/ads/meta/sendMetaEvents.ts
 import crypto from "crypto";
 
 import { supabase } from "@engravida/lib";

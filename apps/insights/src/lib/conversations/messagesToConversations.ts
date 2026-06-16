@@ -1,4 +1,4 @@
-// src/lib/conversations/messagesToConversations.ts
+// apps/insights/src/lib/conversations/messagesToConversations.ts
 import { supabase } from "@engravida/lib";
 import type { AnalyzeConversationInput, Message } from "@engravida/types";
 

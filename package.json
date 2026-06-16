@@ -12,7 +12,7 @@
     "build": "turbo build",
     "build:insights": "turbo build --filter=insights",
     "lint": "turbo lint",
-    "headers": "pnpm --filter insights headers",
+    "headers": "pnpm --filter insights headers && pnpm --filter crm headers",
     "ui": "pnpm --filter insights ui",
     "analyze": "pnpm --filter insights analyze",
     "messages": "pnpm --filter insights messages",

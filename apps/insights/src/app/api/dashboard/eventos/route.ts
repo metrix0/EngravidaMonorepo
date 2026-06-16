@@ -1,4 +1,4 @@
-// src/app/api/dashboard/eventos/route.ts
+// apps/insights/src/app/api/dashboard/eventos/route.ts
 import { NextResponse } from "next/server";
 
 import { supabase } from "@engravida/lib";

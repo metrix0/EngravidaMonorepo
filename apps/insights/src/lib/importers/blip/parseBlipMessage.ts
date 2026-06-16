@@ -1,4 +1,4 @@
-// src/lib/importers/blip/parseBlipMessage.ts
+// apps/insights/src/lib/importers/blip/parseBlipMessage.ts
 import type { SenderType } from "@engravida/types/message";
 
 export type ParsedBlipMessage = {

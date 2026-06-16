@@ -1,4 +1,4 @@
-// src/lib/analysis/buildConversationText.ts
+// apps/insights/src/lib/analysis/buildConversationText.ts
 import type { Message } from "@engravida/types";
 
 export function buildConversationText(messages: Message[]): string {

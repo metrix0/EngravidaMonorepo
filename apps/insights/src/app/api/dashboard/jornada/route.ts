@@ -1,4 +1,4 @@
-// src/app/api/dashboard/jornada/route.ts
+// apps/insights/src/app/api/dashboard/jornada/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@engravida/lib";
 

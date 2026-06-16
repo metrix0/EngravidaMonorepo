@@ -1,3 +1,4 @@
+// apps/crm/src/lib/inbox/inboxApi.ts
 import type {
     InboxStatus,
     InboxThreadDetailResponse,

@@ -1,4 +1,4 @@
-// src/app/api/dashboard/mensagens/[conversationId]/route.ts
+// apps/insights/src/app/api/dashboard/mensagens/[conversationId]/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@engravida/lib";
 

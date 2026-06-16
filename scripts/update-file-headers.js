@@ -2,6 +2,10 @@
 import fs from "fs";
 import path from "path";
 
+import { fileURLToPath } from "url";
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const ROOT = process.cwd();
 
 const EXTENSIONS = [".js", ".jsx", ".ts", ".tsx"];
@@ -38,7 +42,7 @@ function walk(dir) {
 }
 
 function updateHeader(filePath) {
-    const relativePath = path.relative(ROOT, filePath).replaceAll("\\", "/");
+    const relativePath = path.relative(REPO_ROOT, filePath).replaceAll("\\", "/");
     const header = `// ${relativePath}`;
 
     const content = fs.readFileSync(filePath, "utf8");

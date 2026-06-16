@@ -1,3 +1,4 @@
+// apps/crm/src/app/api/inbox/threads/[threadId]/notes/route.ts
 import { NextResponse } from "next/server";
 
 import type { ClientNote } from "@/types/inbox";

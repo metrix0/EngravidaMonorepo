@@ -1,4 +1,4 @@
-// src/types/conversation-analysis.ts
+// apps/insights/src/types/conversation-analysis.ts
 export type ConversationGoal =
     | "answer_information"
     | "schedule_consultation"

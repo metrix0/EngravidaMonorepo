@@ -1,4 +1,4 @@
-// src/lib/ads/deriveAdEventsFromAnalysis.ts
+// apps/insights/src/lib/ads/deriveAdEventsFromAnalysis.ts
 import type { ConversationAnalysis, OutcomeEventType } from "@engravida/types";
 import {
     QUALIFIED_LEAD_OUTCOME_EVENTS,

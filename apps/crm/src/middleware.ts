@@ -1,4 +1,4 @@
-// src/middleware.ts
+// apps/crm/src/middleware.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 

@@ -1,4 +1,4 @@
-// src/app/dev/ui/page.tsx
+// apps/insights/src/app/dev/ui/page.tsx
 "use client";
 import { uiRegistry } from "./uiRegistry.generated";
 

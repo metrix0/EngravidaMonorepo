@@ -1,4 +1,4 @@
-// src/app/page.tsx
+// apps/crm/src/app/page.tsx
 "use client";
 
 import {useEffect, useState} from "react";

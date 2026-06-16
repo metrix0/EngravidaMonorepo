@@ -1,1 +1,1 @@
-// src/types/journey-event.ts
+// apps/insights/src/types/journey-event.ts

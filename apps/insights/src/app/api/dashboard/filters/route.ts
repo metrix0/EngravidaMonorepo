@@ -1,4 +1,4 @@
-// src/app/api/dashboard/filters/route.ts
+// apps/insights/src/app/api/dashboard/filters/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@engravida/lib";
 import type { FilterEntity, FilterOption, FiltersResponse } from "@engravida/types";
