@@ -201,7 +201,7 @@ export async function sendGoogleEvents({
                     buildClickConversion({
                         event,
                         sourceId,
-                        eventTime: event.occurred_at ?? conversation_ended_at ?? sentAt,
+                        eventTime: sentAt,
                         tracking,
                         account,
                         phone,
