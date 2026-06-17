@@ -18,7 +18,8 @@ import {
     DashboardHeader,
     FilterButton,
     HorizontalScroller,
-    KpiCard, Pagination,
+    KpiCard,
+    Pagination,
     Skeleton,
 } from "@engravida/components";
 
@@ -29,7 +30,10 @@ import type {
     CalendarPreset,
     DateRange,
 } from "@engravida/components/ui/CalendarButton";
-import {InitialsAvatar} from "@engravida/components/conversations/InitialsAvatar";
+import { InitialsAvatar } from "@engravida/components/conversations/InitialsAvatar";
+import { ConversationPanel } from "@engravida/components/conversations/ConversationPanel";
+import ClientPanel from "../../components/clientes/ClientPanel";
+import ThreadConversationPanel from "../../components/clientes/ThreadConversationPanel";
 
 type PipelineStage = {
     id: string;
@@ -108,6 +112,10 @@ export default function ClientesPage() {
     const [stages, setStages] = useState<PipelineStage[]>([]);
     const [loading, setLoading] = useState(true);
 
+    const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+    const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+    const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+
     const [period, setPeriod] = useState<CalendarPresetValue | null>("always");
     const [selectedRange, setSelectedRange] = useState<DateRange>({
         start: null,
@@ -129,7 +137,7 @@ export default function ClientesPage() {
             });
 
             const text = await response.text();
-            const data = text ? JSON.parse(text) : null;
+            const data = text ? (JSON.parse(text) as ClientsResponse) : null;
 
             if (!response.ok) {
                 console.error("[clientes] failed to load", {
@@ -217,7 +225,7 @@ export default function ClientesPage() {
 
     const totalPages = Math.max(
         1,
-        Math.ceil(filteredClients.length / CLIENTS_PER_PAGE)
+        Math.ceil(filteredClients.length / CLIENTS_PER_PAGE),
     );
 
     useEffect(() => {
@@ -234,13 +242,11 @@ export default function ClientesPage() {
     }, [filteredClients, currentPage]);
 
     const pageStart =
-        filteredClients.length === 0
-            ? 0
-            : (currentPage - 1) * CLIENTS_PER_PAGE + 1;
+        filteredClients.length === 0 ? 0 : (currentPage - 1) * CLIENTS_PER_PAGE + 1;
 
     const pageEnd = Math.min(
         currentPage * CLIENTS_PER_PAGE,
-        filteredClients.length
+        filteredClients.length,
     );
 
     const withoutFunnel = filteredClients.filter((client) => {
@@ -328,6 +334,7 @@ export default function ClientesPage() {
                             { label: "Meta Ads", value: "meta_ads" },
                             { label: "Instagram", value: "instagram" },
                             { label: "Google", value: "google" },
+                            { label: "Direto", value: "direct" },
                         ]}
                         widthClassName="w-[230px]"
                     />
@@ -417,12 +424,11 @@ export default function ClientesPage() {
                                             { label: "Meta Ads", value: "meta_ads" },
                                             { label: "Instagram", value: "instagram" },
                                             { label: "Google", value: "google" },
+                                            { label: "Direto", value: "direct" },
                                         ],
                                     },
                                 ]}
                             />
-
-
                         </div>
                     </div>
 
@@ -451,16 +457,18 @@ export default function ClientesPage() {
                                         key={client.id}
                                         client={client}
                                         stage={stage ?? null}
+                                        onSelectClient={setSelectedClientId}
                                     />
                                 );
                             })}
                             </tbody>
                         </table>
                     </div>
-                    {filteredClients.length > CLIENTS_PER_PAGE ?
+                    {filteredClients.length > CLIENTS_PER_PAGE ? (
                         <div className="mt-5 flex items-center justify-between pb-16">
                             <p className="text-sm font-medium text-muted">
-                                Mostrando {pageStart}–{pageEnd} de {filteredClients.length} clientes
+                                Mostrando {pageStart}–{pageEnd} de {filteredClients.length}{" "}
+                                clientes
                             </p>
 
                             <Pagination
@@ -469,10 +477,28 @@ export default function ClientesPage() {
                                 onPageChange={setCurrentPage}
                             />
                         </div>
-                        : <div className={"pb-12"}></div>
-                    }
+                    ) : (
+                        <div className="pb-12" />
+                    )}
                 </section>
             </section>
+
+            <ClientPanel
+                clientId={selectedClientId}
+                onClose={() => setSelectedClientId(null)}
+                onOpenConversation={setSelectedConversationId}
+                onOpenThread={setSelectedThreadId}
+            />
+
+            <ConversationPanel
+                conversationId={selectedConversationId}
+                onClose={() => setSelectedConversationId(null)}
+            />
+
+            <ThreadConversationPanel
+                threadId={selectedThreadId}
+                onClose={() => setSelectedThreadId(null)}
+            />
         </main>
     );
 }
@@ -480,15 +506,17 @@ export default function ClientesPage() {
 function ClientRow({
                        client,
                        stage,
+                       onSelectClient,
                    }: {
     client: Client;
     stage: PipelineStage | null;
+    onSelectClient: (clientId: string) => void;
 }) {
     const funnelName = getFunnelName(stage);
 
     return (
         <tr
-            onClick={() => openClientProfile(client.id)}
+            onClick={() => onSelectClient(client.id)}
             className="group h-[76px] cursor-pointer border-b border-slate-100 text-sm text-text transition-colors hover:bg-selection/80"
         >
             <td className="px-6">
@@ -507,11 +535,11 @@ function ClientRow({
                 </div>
             </td>
 
-            <td className="px-4 text-slate-700">{client.phone ?? "Sem telefone"}</td>
+            <td className="px-4 text-slate-700">{formatPhone(client.phone)}</td>
 
             <td className="px-4" title={funnelName}>
                 <Chip
-                    label={stage?.name ?? "—"}
+                    label={stage?.name ?? "-"}
                     tone={getStageVariant(stage?.name ?? null)}
                 />
             </td>
@@ -527,9 +555,7 @@ function ClientRow({
                 {timeAgo(client.last_interaction_at)}
             </td>
 
-            <td className="px-4 text-slate-700">
-                {client.attendant_name ?? "—"}
-            </td>
+            <td className="px-4 text-slate-700">{client.attendant_name ?? "—"}</td>
 
             <td className="px-2 text-right">
                 <div className="flex justify-end">
@@ -544,27 +570,13 @@ function ClientRow({
     );
 }
 
-function openClientProfile(clientId: string) {
-    window.location.href = `/clientes?client_id=${clientId}`;
-}
-
 function getFunnelName(stage: PipelineStage | null) {
     if (!stage) return "Sem funil";
 
-    return (
-        stage.pipeline_name ??
-        stage.pipeline?.name ??
-        "Funil não informado"
-    );
+    return stage.pipeline_name ?? stage.pipeline?.name ?? "Funil não informado";
 }
 
-function Chip({
-                  label,
-                  tone,
-              }: {
-    label: string;
-    tone: BadgeTone;
-}) {
+function Chip({ label, tone }: { label: string; tone: BadgeTone }) {
     return (
         <span
             className={[
@@ -573,8 +585,8 @@ function Chip({
                 tone.text,
             ].join(" ")}
         >
-            {label}
-        </span>
+      {label}
+    </span>
     );
 }
 
@@ -584,9 +596,10 @@ function sourceLabel(source: string | null) {
         facebook: "Meta Ads",
         instagram: "Instagram",
         google: "Google",
+        direct: "Direto",
     };
 
-    return map[source] ?? source ?? "—";
+    return map[source ?? "direct"] ?? source ?? "Direto";
 }
 
 function getSourceVariant(source: string | null): BadgeTone {
@@ -601,7 +614,7 @@ function getSourceVariant(source: string | null): BadgeTone {
     }
 
     if (normalized.includes("instagram")) {
-        return { bg: "bg-soft-red", text: "text-pink" };
+        return { bg: "bg-soft-pink", text: "text-pink" };
     }
 
     return { bg: "bg-slate-100", text: "text-slate-500" };
@@ -641,6 +654,12 @@ function getStageVariant(stageName: string | null): BadgeTone {
     return { bg: "bg-slate-100", text: "text-slate-500" };
 }
 
+function formatPhone(phone: string | null) {
+    if (!phone) return "Sem telefone";
+
+    return phone.split("+55")[1] ?? phone;
+}
+
 function timeAgo(date: string) {
     const diff = Date.now() - new Date(date).getTime();
     const minutes = Math.floor(diff / 60000);
@@ -668,7 +687,7 @@ function normalize(value: string) {
 
 function getInteractionDateRange(
     period: CalendarPresetValue | null,
-    selectedRange: DateRange
+    selectedRange: DateRange,
 ): { start: string; end: string } | null {
     if (selectedRange.start) {
         return {

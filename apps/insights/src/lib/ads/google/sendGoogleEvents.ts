@@ -31,6 +31,8 @@ type GoogleAdsAccount = {
     bookAppointmentConversionAction: string;
 };
 
+type FinalGoogleAdEventStatus = "sent" | "failed";
+
 const googleAdsClientId = process.env.GOOGLE_ADS_CLIENT_ID;
 const googleAdsClientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
 const googleAdsRefreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
@@ -117,9 +119,12 @@ export async function sendGoogleEvents({
 
     const sentAt = new Date().toISOString();
 
-    let adEventIds: string[] = [];
+    let sentParameters: string[] = [];
+    let shouldCreateFailedAdEventOnCatch = false;
 
     try {
+        shouldCreateFailedAdEventOnCatch = true;
+
         validateGoogleEnv();
 
         const tracking = await getClientTracking({
@@ -153,7 +158,7 @@ export async function sendGoogleEvents({
             click_id_used: getBestClickIdName(tracking),
         });
 
-        const sentParameters = buildGoogleSentParameters(tracking, {
+        sentParameters = buildGoogleSentParameters(tracking, {
             phone,
             email,
             name,
@@ -168,19 +173,6 @@ export async function sendGoogleEvents({
         });
 
         const results = [];
-
-        adEventIds = await createPendingGoogleAdEvents({
-            events,
-            conversation_id: conversation_id ?? null,
-            schedule_id: schedule_id ?? null,
-            sentAt,
-        });
-
-        console.log("[sendGoogleEvents] ad_events created for send attempt", {
-            conversation_id,
-            schedule_id,
-            ad_event_ids: adEventIds,
-        });
 
         for (const account of googleAdsAccounts) {
             console.log(`[sendGoogleEvents][${account.key}] preparing upload`, {
@@ -341,6 +333,9 @@ export async function sendGoogleEvents({
         }
 
         const successfulUploads = results.filter((result) => result.ok);
+        const failedUploads = results.filter(
+            (result) => !result.ok && !result.skipped
+        );
 
         if (successfulUploads.length === 0) {
             console.log("[sendGoogleEvents] all accounts skipped/failed", {
@@ -349,24 +344,60 @@ export async function sendGoogleEvents({
                 results,
             });
 
+            if (failedUploads.length === 0) {
+                return {
+                    ok: false,
+                    skipped: true,
+                    reason: "No Google account received valid conversions",
+                    results,
+                };
+            }
+
+            shouldCreateFailedAdEventOnCatch = false;
+
+            const adEventIds = await createGoogleAdEvents({
+                events,
+                conversation_id: conversation_id ?? null,
+                schedule_id: schedule_id ?? null,
+                sentAt,
+                status: "failed",
+                parameters: sentParameters,
+            });
+
+            console.log("[sendGoogleEvents] failed ad_events created", {
+                conversation_id,
+                schedule_id,
+                ad_event_ids: adEventIds,
+                failed_uploads: failedUploads.length,
+                total_accounts: googleAdsAccounts.length,
+                results,
+            });
+
             return {
                 ok: false,
-                skipped: true,
-                reason: "No Google account received valid conversions",
+                skipped: false,
+                reason: "Google Ads upload failed",
                 results,
             };
         }
 
-        await updateAdEventsParameters(adEventIds, sentParameters);
+        shouldCreateFailedAdEventOnCatch = false;
 
-        console.log("[sendGoogleEvents] ad_event parameters saved", {
+        const adEventIds = await createGoogleAdEvents({
+            events,
+            conversation_id: conversation_id ?? null,
+            schedule_id: schedule_id ?? null,
+            sentAt,
+            status: "sent",
+            parameters: sentParameters,
+        });
+
+        console.log("[sendGoogleEvents] sent ad_events created", {
             conversation_id,
             schedule_id,
             ad_event_ids: adEventIds,
             parameters: sentParameters,
         });
-
-        await updateAdEventsStatus(adEventIds, "sent");
 
         console.log("[sendGoogleEvents] completed", {
             conversation_id,
@@ -389,8 +420,29 @@ export async function sendGoogleEvents({
             error,
         });
 
-        if (adEventIds.length > 0) {
-            await updateAdEventsStatus(adEventIds, "failed");
+        if (shouldCreateFailedAdEventOnCatch) {
+            try {
+                const adEventIds = await createGoogleAdEvents({
+                    events,
+                    conversation_id: conversation_id ?? null,
+                    schedule_id: schedule_id ?? null,
+                    sentAt,
+                    status: "failed",
+                    parameters: sentParameters,
+                });
+
+                console.log("[sendGoogleEvents] failed ad_events created after error", {
+                    conversation_id,
+                    schedule_id,
+                    ad_event_ids: adEventIds,
+                });
+            } catch (adEventError) {
+                console.error("[sendGoogleEvents] failed to create failed ad_events", {
+                    conversation_id,
+                    schedule_id,
+                    error: adEventError,
+                });
+            }
         }
 
         return {
@@ -547,28 +599,35 @@ export async function sendGoogleEvents({
         return json.access_token as string;
     }
 
-    async function createPendingGoogleAdEvents({
-                                                   events,
-                                                   conversation_id,
-                                                   schedule_id,
-                                                   sentAt,
-                                               }: {
+    async function createGoogleAdEvents({
+                                            events,
+                                            conversation_id,
+                                            schedule_id,
+                                            sentAt,
+                                            status,
+                                            parameters,
+                                        }: {
         events: DerivedAdEvent[];
         conversation_id: string | null;
         schedule_id: string | null;
         sentAt: string;
+        status: FinalGoogleAdEventStatus;
+        parameters?: string[];
     }) {
         const {data, error} = await supabase
             .from("ad_events")
             .insert(
-                events.map((event) => ({
-                    conversation_id,
-                    schedule_id,
-                    event_type: event.type,
-                    platform: "Google Ads",
-                    status: "pending",
-                    event_date: sentAt,
-                }))
+                events.map((event) =>
+                    removeNullValues({
+                        conversation_id,
+                        schedule_id,
+                        event_type: event.type,
+                        platform: "Google Ads",
+                        status,
+                        event_date: sentAt,
+                        parameters: parameters?.length ? parameters : null,
+                    })
+                )
             )
             .select("id");
 
@@ -577,25 +636,6 @@ export async function sendGoogleEvents({
         }
 
         return (data ?? []).map((item) => item.id as string);
-    }
-
-    async function updateAdEventsStatus(
-        adEventIds: string[],
-        status: "pending" | "sent" | "failed"
-    ) {
-        if (adEventIds.length === 0) return;
-
-        const {error} = await supabase
-            .from("ad_events")
-            .update({
-                status,
-                updated_at: new Date().toISOString(),
-            })
-            .in("id", adEventIds);
-
-        if (error) {
-            throw error;
-        }
     }
 
     function getConversionActionResourceName(
@@ -682,25 +722,6 @@ export async function sendGoogleEvents({
                 return true;
             })
         );
-    }
-
-    async function updateAdEventsParameters(
-        adEventIds: string[],
-        parameters: string[]
-    ) {
-        if (adEventIds.length === 0) return;
-
-        const {error} = await supabase
-            .from("ad_events")
-            .update({
-                parameters,
-                updated_at: new Date().toISOString(),
-            })
-            .in("id", adEventIds);
-
-        if (error) {
-            throw error;
-        }
     }
 
     function buildGoogleSentParameters(
@@ -830,6 +851,7 @@ export async function sendGoogleEvents({
         );
     }
 }
+
 function normalizeCustomerId(value: string | undefined) {
     return value?.replace(/\D/g, "") || undefined;
 }
